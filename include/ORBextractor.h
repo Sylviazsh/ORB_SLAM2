@@ -94,20 +94,20 @@ protected:
     void ComputeKeyPointsOld(std::vector<std::vector<cv::KeyPoint> >& allKeypoints);
     std::vector<cv::Point> pattern;
 
-    int nfeatures;
-    double scaleFactor;
-    int nlevels;
-    int iniThFAST;
-    int minThFAST;
+    int nfeatures; //所有层级提取到的特征点数之和金字塔层数
+    double scaleFactor; //图像金字塔相邻层级间的缩放系数
+    int nlevels; //金字塔层级数
+    int iniThFAST; //提取特征点的描述子门槛(高)	
+    int minThFAST; //提取特征点的描述子门槛(低)
 
-    std::vector<int> mnFeaturesPerLevel;
+    std::vector<int> mnFeaturesPerLevel; //金字塔每层级中提取的特征点数正比于图层边长,总和为nfeatures
 
     std::vector<int> umax;
 
-    std::vector<float> mvScaleFactor;
-    std::vector<float> mvInvScaleFactor;    
-    std::vector<float> mvLevelSigma2;
-    std::vector<float> mvInvLevelSigma2;
+    std::vector<float> mvScaleFactor; //各层级的缩放系数
+    std::vector<float> mvInvScaleFactor; //各层级缩放系数的倒数
+    std::vector<float> mvLevelSigma2; //各层级缩放系数的平方
+    std::vector<float> mvInvLevelSigma2; //各层级缩放系数的平方倒数
 };
 
 } //namespace ORB_SLAM

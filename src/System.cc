@@ -62,8 +62,8 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     //Load ORB Vocabulary
     cout << endl << "Loading ORB Vocabulary. This could take a while..." << endl;
 
-    mpVocabulary = new ORBVocabulary();
-    bool bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);
+    mpVocabulary = new ORBVocabulary(); //ORBVocabulary直接由DBoW2 typedef来的 //mp表示menber pointer
+    bool bVocLoad = mpVocabulary->loadFromTextFile(strVocFile); //? Vocabulary/ORBvoc.txt中的内容各表示什么含义?
     if(!bVocLoad)
     {
         cerr << "Wrong path to vocabulary. " << endl;
@@ -103,7 +103,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
         mpTracker->SetViewer(mpViewer);
     }
 
-    //Set pointers between threads
+    //Set pointers between threads //使线程之间的类能相互调用
     mpTracker->SetLocalMapper(mpLocalMapper);
     mpTracker->SetLoopClosing(mpLoopCloser);
 
@@ -224,7 +224,7 @@ cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp)
         exit(-1);
     }
 
-    // Check mode change
+    // Check mode change //如果处于local mapping模式，先关闭此模式，进入tracking模式
     {
         unique_lock<mutex> lock(mMutexMode);
         if(mbActivateLocalizationMode)
@@ -240,7 +240,7 @@ cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp)
             mpTracker->InformOnlyTracking(true);
             mbActivateLocalizationMode = false;
         }
-        if(mbDeactivateLocalizationMode)
+        if(mbDeactivateLocalizationMode) //? 为什么
         {
             mpTracker->InformOnlyTracking(false);
             mpLocalMapper->Release();
@@ -258,7 +258,7 @@ cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp)
     }
     }
 
-    cv::Mat Tcw = mpTracker->GrabImageMonocular(im,timestamp);
+    cv::Mat Tcw = mpTracker->GrabImageMonocular(im,timestamp); //将图像和时间戳交给tracking线程处理
 
     unique_lock<mutex> lock2(mMutexState);
     mTrackingState = mpTracker->mState;
