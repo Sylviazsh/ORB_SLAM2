@@ -294,7 +294,7 @@ void Tracking::Track()
         bool bOK;
 
         // Initial camera pose estimation using motion model or relocalization (if tracking is lost)
-        if(!mbOnlyTracking)
+        if(!mbOnlyTracking) //定位+建图
         {
             // Local Mapping is activated. This is the normal behaviour, unless
             // you explicitly activate the "only tracking" mode.
@@ -306,21 +306,21 @@ void Tracking::Track()
 
                 if(mVelocity.empty() || mCurrentFrame.mnId<mnLastRelocFrameId+2)
                 {
-                    bOK = TrackReferenceKeyFrame();
+                    bOK = TrackReferenceKeyFrame(); //如果当前运动速度为空，使用关键帧模式
                 }
                 else
                 {
-                    bOK = TrackWithMotionModel();
+                    bOK = TrackWithMotionModel(); //如果有运动速度，使用运动模式
                     if(!bOK)
-                        bOK = TrackReferenceKeyFrame();
+                        bOK = TrackReferenceKeyFrame(); //如果运动模式跟踪到的特征点数量较少，使用关键帧模式
                 }
             }
             else
             {
-                bOK = Relocalization();
+                bOK = Relocalization(); //如果跟踪失败，则重定位：BoW搜索、EPnP求解位姿
             }
         }
-        else
+        else //仅定位
         {
             // Localization Mode: Local Mapping is deactivated
 
@@ -330,7 +330,7 @@ void Tracking::Track()
             }
             else
             {
-                if(!mbVO)
+                if(!mbVO) //仅有前端为VO，所以mbVO为false表示此帧匹配了很多的MapPoints，跟踪很正常
                 {
                     // In last frame we tracked enough MapPoints in the map
 
@@ -343,7 +343,7 @@ void Tracking::Track()
                         bOK = TrackReferenceKeyFrame();
                     }
                 }
-                else
+                else //mbVO为true表明此帧匹配了很少的MapPoints，少于10个
                 {
                     // In last frame we tracked mainly "visual odometry" points.
 
@@ -351,11 +351,11 @@ void Tracking::Track()
                     // If relocalization is sucessfull we choose that solution, otherwise we retain
                     // the "visual odometry" solution.
 
-                    bool bOKMM = false;
+                    bool bOKMM = false; //MM=Motion Model,通过运动模型进行跟踪的结果
                     bool bOKReloc = false;
-                    vector<MapPoint*> vpMPsMM;
-                    vector<bool> vbOutMM;
-                    cv::Mat TcwMM;
+                    vector<MapPoint*> vpMPsMM; //运动模型中构造的地图点
+                    vector<bool> vbOutMM; //在追踪运动模型后发现的外点（异常点）
+                    cv::Mat TcwMM; //运动模型得到的位姿
                     if(!mVelocity.empty())
                     {
                         bOKMM = TrackWithMotionModel();
@@ -384,7 +384,7 @@ void Tracking::Track()
                     }
                     else if(bOKReloc)
                     {
-                        mbVO = false;
+                        mbVO = false; //只要重定位成功整个跟踪过程正常进行（重定位与跟踪，更相信重定位）
                     }
 
                     bOK = bOKReloc || bOKMM;
@@ -392,9 +392,10 @@ void Tracking::Track()
             }
         }
 
-        mCurrentFrame.mpReferenceKF = mpReferenceKF;
+        mCurrentFrame.mpReferenceKF = mpReferenceKF; // 将最新的关键帧作为当前帧的参考关键帧
 
         // If we have an initial estimation of the camera pose and matching. Track the local map.
+        // 前面只是跟踪一帧得到初始位姿，这里搜索局部关键帧、局部地图点，和当前帧进行投影匹配，得到更多匹配的MapPoints后进行Pose优化
         if(!mbOnlyTracking)
         {
             if(bOK)
@@ -415,7 +416,7 @@ void Tracking::Track()
             mState=LOST;
 
         // Update drawer
-        mpFrameDrawer->Update(this);
+        mpFrameDrawer->Update(this); //更新显示线程中的图像、特征点、地图点等信息
 
         // If tracking were good, check if we insert a keyframe
         if(bOK)
@@ -423,17 +424,18 @@ void Tracking::Track()
             // Update motion model
             if(!mLastFrame.mTcw.empty())
             {
+                // 更新恒速运动模型 TrackWithMotionModel 中的mVelocity
                 cv::Mat LastTwc = cv::Mat::eye(4,4,CV_32F);
                 mLastFrame.GetRotationInverse().copyTo(LastTwc.rowRange(0,3).colRange(0,3));
                 mLastFrame.GetCameraCenter().copyTo(LastTwc.rowRange(0,3).col(3));
                 mVelocity = mCurrentFrame.mTcw*LastTwc;
             }
             else
-                mVelocity = cv::Mat();
+                mVelocity = cv::Mat(); //否则速度为空
 
-            mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.mTcw);
+            mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.mTcw);  //更新显示中的位姿
 
-            // Clean VO matches
+            // Clean VO matches 清除观测不到的地图点
             for(int i=0; i<mCurrentFrame.N; i++)
             {
                 MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
