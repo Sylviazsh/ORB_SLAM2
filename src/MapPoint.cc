@@ -29,6 +29,13 @@ namespace ORB_SLAM2
 long unsigned int MapPoint::nNextId=0;
 mutex MapPoint::mGlobalMutex;
 
+/**
+ * @brief 关键帧地图点构造函数
+ * 
+ * @param Pos 该地图点3D位置
+ * @param pRefKF 参考关键帧
+ * @param pMap 地图
+ */
 MapPoint::MapPoint(const cv::Mat &Pos, KeyFrame *pRefKF, Map* pMap):
     mnFirstKFid(pRefKF->mnId), mnFirstFrame(pRefKF->mnFrameId), nObs(0), mnTrackReferenceForFrame(0),
     mnLastFrameSeen(0), mnBALocalForKF(0), mnFuseCandidateForKF(0), mnLoopPointForKF(0), mnCorrectedByKF(0),
@@ -36,13 +43,21 @@ MapPoint::MapPoint(const cv::Mat &Pos, KeyFrame *pRefKF, Map* pMap):
     mpReplaced(static_cast<MapPoint*>(NULL)), mfMinDistance(0), mfMaxDistance(0), mpMap(pMap)
 {
     Pos.copyTo(mWorldPos);
-    mNormalVector = cv::Mat::zeros(3,1,CV_32F);
+    mNormalVector = cv::Mat::zeros(3,1,CV_32F); //平均观测方向
 
     // MapPoints can be created from Tracking and Local Mapping. This mutex avoid conflicts with id.
     unique_lock<mutex> lock(mpMap->mMutexPointCreation);
     mnId=nNextId++;
 }
 
+/**
+ * @brief 普通帧地图点构造函数，普通帧构造的地图点只是临时用来追踪的
+ * 
+ * @param Pos 该地图点3D位置
+ * @param pMap 地图
+ * @param pFrame 对应普通帧
+ * @param idxF 地图点在该帧特征点中的索引号
+ */
 MapPoint::MapPoint(const cv::Mat &Pos, Map* pMap, Frame* pFrame, const int &idxF):
     mnFirstKFid(-1), mnFirstFrame(pFrame->mnId), nObs(0), mnTrackReferenceForFrame(0), mnLastFrameSeen(0),
     mnBALocalForKF(0), mnFuseCandidateForKF(0),mnLoopPointForKF(0), mnCorrectedByKF(0),
@@ -50,12 +65,12 @@ MapPoint::MapPoint(const cv::Mat &Pos, Map* pMap, Frame* pFrame, const int &idxF
     mnFound(1), mbBad(false), mpReplaced(NULL), mpMap(pMap)
 {
     Pos.copyTo(mWorldPos);
-    cv::Mat Ow = pFrame->GetCameraCenter();
+    cv::Mat Ow = pFrame->GetCameraCenter(); //世界坐标系下的光心
     mNormalVector = mWorldPos - Ow;
-    mNormalVector = mNormalVector/cv::norm(mNormalVector);
+    mNormalVector = mNormalVector/cv::norm(mNormalVector); //归一化，方向向量单位长度
 
-    cv::Mat PC = Pos - Ow;
-    const float dist = cv::norm(PC);
+    cv::Mat PC = Pos - Ow; //? 
+    const float dist = cv::norm(PC); 
     const int level = pFrame->mvKeysUn[idxF].octave;
     const float levelScaleFactor =  pFrame->mvScaleFactors[level];
     const int nLevels = pFrame->mnScaleLevels;
@@ -95,35 +110,46 @@ KeyFrame* MapPoint::GetReferenceKeyFrame()
     return mpRefKF;
 }
 
+/**
+ * @brief 增加地图点的观测关系
+ * 
+ * @param pKF 对应的关键帧
+ * @param idx 该地图点在关键帧中对应的索引值
+ */
 void MapPoint::AddObservation(KeyFrame* pKF, size_t idx)
 {
     unique_lock<mutex> lock(mMutexFeatures);
-    if(mObservations.count(pKF))
+    if(mObservations.count(pKF)) //如果已经存在观测关系，就返回
         return;
-    mObservations[pKF]=idx;
+    mObservations[pKF]=idx; //如果不存在，就添加
 
-    if(pKF->mvuRight[idx]>=0)
+    if(pKF->mvuRight[idx]>=0) //分成单目和双目两种情况添加观测，单目时观测次数加1，双目时观测次数加2
         nObs+=2;
     else
         nObs++;
 }
 
+/**
+ * @brief 删除观测关系
+ * 
+ * @param pKF 关键帧
+ */
 void MapPoint::EraseObservation(KeyFrame* pKF)
 {
     bool bBad=false;
     {
         unique_lock<mutex> lock(mMutexFeatures);
-        if(mObservations.count(pKF))
+        if(mObservations.count(pKF)) //判断该关键帧是否在观测关系中，即该关键帧是否看到了这个MapPoint
         {
             int idx = mObservations[pKF];
-            if(pKF->mvuRight[idx]>=0)
+            if(pKF->mvuRight[idx]>=0) //判断单目和双目，单目时观测次数减1，双目时减2
                 nObs-=2;
             else
                 nObs--;
 
-            mObservations.erase(pKF);
+            mObservations.erase(pKF); //删除该关键帧对应的观测关系
 
-            if(mpRefKF==pKF)
+            if(mpRefKF==pKF) //如果关键帧是参考帧则重新指定参考帧
                 mpRefKF=mObservations.begin()->first;
 
             // If only 2 observations or less, discard point
@@ -132,7 +158,7 @@ void MapPoint::EraseObservation(KeyFrame* pKF)
         }
     }
 
-    if(bBad)
+    if(bBad) //即删除地图点
         SetBadFlag();
 }
 
@@ -148,23 +174,28 @@ int MapPoint::Observations()
     return nObs;
 }
 
+/**
+ * @brief 删除地图点
+ * 删除地图点的各成员变量是一个较耗时的过程,因此采取先标记(社会性死亡)再清除(肉体死亡)的方式
+ * 这样只有在设置坏点标记mbBad时需要加锁,之后的操作就不需要加锁了
+ */
 void MapPoint::SetBadFlag()
 {
     map<KeyFrame*,size_t> obs;
     {
         unique_lock<mutex> lock1(mMutexFeatures);
         unique_lock<mutex> lock2(mMutexPos);
-        mbBad=true;
-        obs = mObservations;
-        mObservations.clear();
+        mbBad=true; //标记mbBad,逻辑上删除当前地图点
+        obs = mObservations; 
+        mObservations.clear(); //清除该地图点所有的观测关系
     }
     for(map<KeyFrame*,size_t>::iterator mit=obs.begin(), mend=obs.end(); mit!=mend; mit++)
     {
         KeyFrame* pKF = mit->first;
-        pKF->EraseMapPointMatch(mit->second);
+        pKF->EraseMapPointMatch(mit->second); //删除关键帧中和该MapPoint对应的匹配关系
     }
 
-    mpMap->EraseMapPoint(this);
+    mpMap->EraseMapPoint(this); //从地图中删除MapPoint,这里会发生内存泄漏
 }
 
 MapPoint* MapPoint::GetReplaced()
@@ -174,9 +205,14 @@ MapPoint* MapPoint::GetReplaced()
     return mpReplaced;
 }
 
+/**
+ * @brief 替换地图点
+ * 
+ * @param pMP 用来替换的地图点
+ */
 void MapPoint::Replace(MapPoint* pMP)
 {
-    if(pMP->mnId==this->mnId)
+    if(pMP->mnId==this->mnId) //如果传入的该MapPoint就是当前的MapPoint，直接跳出
         return;
 
     int nvisible, nfound;
@@ -197,12 +233,12 @@ void MapPoint::Replace(MapPoint* pMP)
         // Replace measurement in keyframe
         KeyFrame* pKF = mit->first;
 
-        if(!pMP->IsInKeyFrame(pKF))
+        if(!pMP->IsInKeyFrame(pKF)) //如果该MapPoint不在关键帧的观测关系中，就添加观测关系
         {
             pKF->ReplaceMapPointMatch(mit->second, pMP);
             pMP->AddObservation(pKF,mit->second);
         }
-        else
+        else //如果在，就删除关键帧和老的MapPoint之间的对应关系
         {
             pKF->EraseMapPointMatch(mit->second);
         }
@@ -211,7 +247,7 @@ void MapPoint::Replace(MapPoint* pMP)
     pMP->IncreaseVisible(nvisible);
     pMP->ComputeDistinctiveDescriptors();
 
-    mpMap->EraseMapPoint(this);
+    mpMap->EraseMapPoint(this); //删掉Map中该地图点
 }
 
 bool MapPoint::isBad()
@@ -239,6 +275,10 @@ float MapPoint::GetFoundRatio()
     return static_cast<float>(mnFound)/mnVisible;
 }
 
+/**
+ * @brief 计算最匹配的描述子
+ * 
+ */
 void MapPoint::ComputeDistinctiveDescriptors()
 {
     // Retrieve all observed descriptors
@@ -256,14 +296,14 @@ void MapPoint::ComputeDistinctiveDescriptors()
     if(observations.empty())
         return;
 
-    vDescriptors.reserve(observations.size());
+    vDescriptors.reserve(observations.size()); //保留的描述子数最多和观测数一致
 
     for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
     {
         KeyFrame* pKF = mit->first;
 
         if(!pKF->isBad())
-            vDescriptors.push_back(pKF->mDescriptors.row(mit->second));
+            vDescriptors.push_back(pKF->mDescriptors.row(mit->second)); //针对每帧的对应的都提取其描述子
     }
 
     if(vDescriptors.empty())
@@ -285,6 +325,7 @@ void MapPoint::ComputeDistinctiveDescriptors()
     }
 
     // Take the descriptor with least median distance to the rest
+    // 选择距离其他描述子中值距离最小的描述子作为地图点的描述子，类似于取了个均值
     int BestMedian = INT_MAX;
     int BestIdx = 0;
     for(size_t i=0;i<N;i++)
@@ -329,6 +370,7 @@ bool MapPoint::IsInKeyFrame(KeyFrame *pKF)
 
 void MapPoint::UpdateNormalAndDepth()
 {
+    // 1.获取地图点相关信息
     map<KeyFrame*,size_t> observations;
     KeyFrame* pRefKF;
     cv::Mat Pos;
@@ -345,6 +387,7 @@ void MapPoint::UpdateNormalAndDepth()
     if(observations.empty())
         return;
 
+    // 2.根据观测到的地图点的关键帧取平均，计算平均观测方向
     cv::Mat normal = cv::Mat::zeros(3,1,CV_32F);
     int n=0;
     for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
@@ -356,12 +399,15 @@ void MapPoint::UpdateNormalAndDepth()
         n++;
     }
 
+    // 3.根据参考帧计算平均观测距离
     cv::Mat PC = Pos - pRefKF->GetCameraCenter();
     const float dist = cv::norm(PC);
     const int level = pRefKF->mvKeysUn[observations[pRefKF]].octave;
     const float levelScaleFactor =  pRefKF->mvScaleFactors[level];
     const int nLevels = pRefKF->mnScaleLevels;
-
+    //深度范围：地图点到参考帧（只有一帧）相机中心距离，乘上参考帧中描述子获取金字塔放大尺度
+    //距离较远的地图点，在金字塔层数较低的地方提取出（金字塔层数越低，分辨率越高，才能识别出远点）
+    //因此，通过地图点的描述子，可以获得该地图点对应的金字塔层级，从而预测该地图点在什么范围内能够被观测到
     {
         unique_lock<mutex> lock3(mMutexPos);
         mfMaxDistance = dist*levelScaleFactor;

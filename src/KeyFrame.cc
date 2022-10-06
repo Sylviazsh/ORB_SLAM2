@@ -28,6 +28,13 @@ namespace ORB_SLAM2
 
 long unsigned int KeyFrame::nNextId=0;
 
+/**
+ * @brief Construct a new Key Frame:: Key Frame object
+ * 
+ * @param F 当前帧
+ * @param pMap 地图
+ * @param pKFDB 关键帧数据集的指针
+ */
 KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB):
     mnFrameId(F.mnId),  mTimeStamp(F.mTimeStamp), mnGridCols(FRAME_GRID_COLS), mnGridRows(FRAME_GRID_ROWS),
     mfGridElementWidthInv(F.mfGridElementWidthInv), mfGridElementHeightInv(F.mfGridElementHeightInv),
@@ -120,6 +127,12 @@ cv::Mat KeyFrame::GetTranslation()
     return Tcw.rowRange(0,3).col(3).clone();
 }
 
+/**
+ * @brief 增加连接
+ * 
+ * @param pKF 需要关联的关键帧
+ * @param weight 权重，即该关键帧与pKF共同观测到的地图点数量
+ */
 void KeyFrame::AddConnection(KeyFrame *pKF, const int &weight)
 {
     {
@@ -148,7 +161,7 @@ void KeyFrame::UpdateBestCovisibles()
     list<int> lWs;
     for(size_t i=0, iend=vPairs.size(); i<iend;i++)
     {
-        lKFs.push_front(vPairs[i].second);
+        lKFs.push_front(vPairs[i].second); //链表中权重由大到小排列要用push_front
         lWs.push_front(vPairs[i].first);
     }
 
@@ -288,6 +301,7 @@ MapPoint* KeyFrame::GetMapPoint(const size_t &idx)
 
 void KeyFrame::UpdateConnections()
 {
+    // 1.获得该关键帧的所有地图点，统计观测到这些地图点的其它关键帧
     map<KeyFrame*,int> KFcounter;
 
     vector<MapPoint*> vpMP;
@@ -313,7 +327,7 @@ void KeyFrame::UpdateConnections()
 
         for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
         {
-            if(mit->first->mnId==mnId)
+            if(mit->first->mnId==mnId) //除去自身，自己与自己不算共视
                 continue;
             KFcounter[mit->first]++;
         }
@@ -325,6 +339,8 @@ void KeyFrame::UpdateConnections()
 
     //If the counter is greater than threshold add connection
     //In case no keyframe counter is over threshold add the one with maximum counter
+    // 2.计算所有共视帧与该帧的连接权重，权重即为共视的地图点数量，对这些连接按权重从大到小排序。
+    // 当该权重大于阈值，在两帧之间建立边，如果没有超过该阈值的权重，那么就只保留权重最大的边
     int nmax=0;
     KeyFrame* pKFmax=NULL;
     int th = 15;
@@ -338,14 +354,14 @@ void KeyFrame::UpdateConnections()
             nmax=mit->second;
             pKFmax=mit->first;
         }
-        if(mit->second>=th)
+        if(mit->second>=th) //对应权重大于阈值，对这些关键帧建立连接
         {
             vPairs.push_back(make_pair(mit->second,mit->first));
             (mit->first)->AddConnection(this,mit->second);
         }
     }
 
-    if(vPairs.empty())
+    if(vPairs.empty()) //如果没有超过阈值的权重，则对权重最大的关键帧建立连接
     {
         vPairs.push_back(make_pair(nmax,pKFmax));
         pKFmax->AddConnection(this,nmax);
@@ -360,18 +376,19 @@ void KeyFrame::UpdateConnections()
         lWs.push_front(vPairs[i].first);
     }
 
+    // 3.更新covisibility graph，即把计算的边给图赋值
     {
         unique_lock<mutex> lockCon(mMutexConnections);
 
         // mspConnectedKeyFrames = spConnectedKeyFrames;
-        mConnectedKeyFrameWeights = KFcounter;
+        mConnectedKeyFrameWeights = KFcounter; //更新图的连接(权重)
         mvpOrderedConnectedKeyFrames = vector<KeyFrame*>(lKFs.begin(),lKFs.end());
         mvOrderedWeights = vector<int>(lWs.begin(), lWs.end());
 
-        if(mbFirstConnection && mnId!=0)
+        if(mbFirstConnection && mnId!=0) //更新生成树的连接
         {
-            mpParent = mvpOrderedConnectedKeyFrames.front();
-            mpParent->AddChild(this);
+            mpParent = mvpOrderedConnectedKeyFrames.front(); //初始化该关键帧的父关键帧为共视度最高的那个关键帧
+            mpParent->AddChild(this); //建立双向连接
             mbFirstConnection = false;
         }
 
@@ -562,7 +579,7 @@ void KeyFrame::EraseConnection(KeyFrame* pKF)
         }
     }
 
-    if(bUpdate)
+    if(bUpdate) //如果删除了连接关系，便需要重新对权重进行排序
         UpdateBestCovisibles();
 }
 

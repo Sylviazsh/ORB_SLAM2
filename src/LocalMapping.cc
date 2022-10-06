@@ -129,8 +129,8 @@ void LocalMapping::ProcessNewKeyFrame()
 {
     {
         unique_lock<mutex> lock(mMutexNewKFs);
-        mpCurrentKeyFrame = mlNewKeyFrames.front();
-        mlNewKeyFrames.pop_front();
+        mpCurrentKeyFrame = mlNewKeyFrames.front(); //取出队列头的关键帧 
+        mlNewKeyFrames.pop_front(); 
     }
 
     // Compute Bags of Words structures
@@ -146,7 +146,7 @@ void LocalMapping::ProcessNewKeyFrame()
         {
             if(!pMP->isBad())
             {
-                if(!pMP->IsInKeyFrame(mpCurrentKeyFrame))
+                if(!pMP->IsInKeyFrame(mpCurrentKeyFrame)) //该地图点是跟踪本关键帧时匹配得到的,在地图点中加入对当前关键帧的观测
                 {
                     pMP->AddObservation(mpCurrentKeyFrame, i);
                     pMP->UpdateNormalAndDepth();
@@ -154,7 +154,7 @@ void LocalMapping::ProcessNewKeyFrame()
                 }
                 else // this can only happen for new stereo points inserted by the Tracking
                 {
-                    mlpRecentAddedMapPoints.push_back(pMP);
+                    mlpRecentAddedMapPoints.push_back(pMP); //该地图点是跟踪本关键帧时新生成的,将其加入容器mlpRecentAddedMapPoints待筛选
                 }
             }
         }
@@ -183,16 +183,16 @@ void LocalMapping::MapPointCulling()
     while(lit!=mlpRecentAddedMapPoints.end())
     {
         MapPoint* pMP = *lit;
-        if(pMP->isBad())
+        if(pMP->isBad()) //在别处已标记删除
         {
             lit = mlpRecentAddedMapPoints.erase(lit);
         }
-        else if(pMP->GetFoundRatio()<0.25f )
+        else if(pMP->GetFoundRatio()<0.25f ) //召回率<0.25
         {
             pMP->SetBadFlag();
             lit = mlpRecentAddedMapPoints.erase(lit);
         }
-        else if(((int)nCurrentKFid-(int)pMP->mnFirstKFid)>=2 && pMP->Observations()<=cnThObs)
+        else if(((int)nCurrentKFid-(int)pMP->mnFirstKFid)>=2 && pMP->Observations()<=cnThObs) //从创建开始连续3个关键帧内观测数目少于cnThObs
         {
             pMP->SetBadFlag();
             lit = mlpRecentAddedMapPoints.erase(lit);
@@ -457,7 +457,8 @@ void LocalMapping::SearchInNeighbors()
     int nn = 10;
     if(mbMonocular)
         nn=20;
-    const vector<KeyFrame*> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
+    const vector<KeyFrame*> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn); //取当前关键帧的一级共视关键帧
+    //遍历一级关键帧,寻找二级关键帧
     vector<KeyFrame*> vpTargetKFs;
     for(vector<KeyFrame*>::const_iterator vit=vpNeighKFs.begin(), vend=vpNeighKFs.end(); vit!=vend; vit++)
     {
@@ -480,6 +481,7 @@ void LocalMapping::SearchInNeighbors()
 
 
     // Search matches by projection from current KF in target KFs
+    //正向融合: 将当前帧的地图点融合到各共视关键帧中
     ORBmatcher matcher;
     vector<MapPoint*> vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
     for(vector<KeyFrame*>::iterator vit=vpTargetKFs.begin(), vend=vpTargetKFs.end(); vit!=vend; vit++)
@@ -490,6 +492,7 @@ void LocalMapping::SearchInNeighbors()
     }
 
     // Search matches by projection from target KFs in current KF
+    //反向融合: 将各共视关键帧的地图点融合到当前关键帧中
     vector<MapPoint*> vpFuseCandidates;
     vpFuseCandidates.reserve(vpTargetKFs.size()*vpMapPointMatches.size());
 
@@ -511,10 +514,10 @@ void LocalMapping::SearchInNeighbors()
         }
     }
 
-    matcher.Fuse(mpCurrentKeyFrame,vpFuseCandidates);
+    matcher.Fuse(mpCurrentKeyFrame,vpFuseCandidates); //进行反向融合
 
 
-    // Update points
+    // Update points 更新当前关键帧的地图点信息
     vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
     for(size_t i=0, iend=vpMapPointMatches.size(); i<iend; i++)
     {
@@ -636,7 +639,7 @@ void LocalMapping::KeyFrameCulling()
     // in at least other 3 keyframes (in the same or finer scale)
     // We only consider close stereo points
     vector<KeyFrame*> vpLocalKeyFrames = mpCurrentKeyFrame->GetVectorCovisibleKeyFrames();
-
+    //遍历当前关键帧的共视关键帧
     for(vector<KeyFrame*>::iterator vit=vpLocalKeyFrames.begin(), vend=vpLocalKeyFrames.end(); vit!=vend; vit++)
     {
         KeyFrame* pKF = *vit;
@@ -648,7 +651,7 @@ void LocalMapping::KeyFrameCulling()
         const int thObs=nObs;
         int nRedundantObservations=0;
         int nMPs=0;
-        for(size_t i=0, iend=vpMapPoints.size(); i<iend; i++)
+        for(size_t i=0, iend=vpMapPoints.size(); i<iend; i++) //遍历局部地图点
         {
             MapPoint* pMP = vpMapPoints[i];
             if(pMP)
@@ -657,7 +660,7 @@ void LocalMapping::KeyFrameCulling()
                 {
                     if(!mbMonocular)
                     {
-                        if(pKF->mvDepth[i]>pKF->mThDepth || pKF->mvDepth[i]<0)
+                        if(pKF->mvDepth[i]>pKF->mThDepth || pKF->mvDepth[i]<0) //双目相机只能看到小于相机基线35倍的地图点
                             continue;
                     }
 
@@ -690,7 +693,7 @@ void LocalMapping::KeyFrameCulling()
             }
         }  
 
-        if(nRedundantObservations>0.9*nMPs)
+        if(nRedundantObservations>0.9*nMPs) //若关键帧超过90%的地图点能被超过3个其它关键帧观测到,则视为冗余关键帧
             pKF->SetBadFlag();
     }
 }
