@@ -89,7 +89,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
 
     //Initialize the Local Mapping thread and launch
     mpLocalMapper = new LocalMapping(mpMap, mSensor==MONOCULAR);
-    mptLocalMapping = new thread(&ORB_SLAM2::LocalMapping::Run,mpLocalMapper);
+    mptLocalMapping = new thread(&ORB_SLAM2::LocalMapping::Run,mpLocalMapper); // 线程主函数、该函数所在的类
 
     //Initialize the Loop Closing thread and launch
     mpLoopCloser = new LoopClosing(mpMap, mpKeyFrameDatabase, mpVocabulary, mSensor!=MONOCULAR);
@@ -221,7 +221,7 @@ cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp)
     if(mSensor!=MONOCULAR)
     {
         cerr << "ERROR: you called TrackMonocular but input sensor was not set to Monocular." << endl;
-        exit(-1);
+        exit(-1); // 当调用 exit 函数时，无论是哪个函数包含了该调用，都将导致程序停止
     }
 
     // Check mode change //如果处于local mapping模式，先关闭此模式，进入tracking模式
@@ -240,7 +240,7 @@ cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp)
             mpTracker->InformOnlyTracking(true);
             mbActivateLocalizationMode = false;
         }
-        if(mbDeactivateLocalizationMode) //? 为什么
+        if(mbDeactivateLocalizationMode) //? 没看懂这两种情况
         {
             mpTracker->InformOnlyTracking(false);
             mpLocalMapper->Release();

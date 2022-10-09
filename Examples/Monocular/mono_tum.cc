@@ -94,7 +94,7 @@ int main(int argc, char **argv)
 
         vTimesTrack[ni]=ttrack;
 
-        // Wait to load the next frame
+        // Wait to load the next frame //? 为什么要按照图片时间戳等待？
         double T=0;
         if(ni<nImages-1)
             T = vTimestamps[ni+1]-tframe;
