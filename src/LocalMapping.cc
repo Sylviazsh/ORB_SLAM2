@@ -211,6 +211,7 @@ void LocalMapping::CreateNewMapPoints()
     int nn = 10;
     if(mbMonocular)
         nn=20;
+    // 在当前关键帧的共视关键帧中找到共视程度最高的nn帧相邻帧vpNeighKFs
     const vector<KeyFrame*> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
 
     ORBmatcher matcher(0.6,false);
@@ -237,7 +238,7 @@ void LocalMapping::CreateNewMapPoints()
     // Search matches with epipolar restriction and triangulate
     for(size_t i=0; i<vpNeighKFs.size(); i++)
     {
-        if(i>0 && CheckNewKeyFrames())
+        if(i>0 && CheckNewKeyFrames()) // 队列中有新参考帧，则先处理新参考帧
             return;
 
         KeyFrame* pKF2 = vpNeighKFs[i];
@@ -254,7 +255,7 @@ void LocalMapping::CreateNewMapPoints()
         }
         else
         {
-            const float medianDepthKF2 = pKF2->ComputeSceneMedianDepth(2);
+            const float medianDepthKF2 = pKF2->ComputeSceneMedianDepth(2); //计算场景中的中位深度
             const float ratioBaselineDepth = baseline/medianDepthKF2;
 
             if(ratioBaselineDepth<0.01)
@@ -361,7 +362,7 @@ void LocalMapping::CreateNewMapPoints()
                 continue;
 
             //Check reprojection error in first keyframe
-            const float &sigmaSquare1 = mpCurrentKeyFrame->mvLevelSigma2[kp1.octave];
+            const float &sigmaSquare1 = mpCurrentKeyFrame->mvLevelSigma2[kp1.octave]; // octave代表是从金字塔哪一层提取的得到的数据
             const float x1 = Rcw1.row(0).dot(x3Dt)+tcw1.at<float>(0);
             const float y1 = Rcw1.row(1).dot(x3Dt)+tcw1.at<float>(1);
             const float invz1 = 1.0/z1;

@@ -874,7 +874,7 @@ bool Tracking::TrackWithMotionModel()
     // Create "visual odometry" points if in Localization Mode
     UpdateLastFrame();
 
-    mCurrentFrame.SetPose(mVelocity*mLastFrame.mTcw);//? 为什么速度可以直接乘以位姿
+    mCurrentFrame.SetPose(mVelocity*mLastFrame.mTcw);// Tcw就是World坐标系原点在Camera坐标系的坐标,Tcw*Pw表示将w坐标系中的点坐标转换到c坐标系
 
     fill(mCurrentFrame.mvpMapPoints.begin(),mCurrentFrame.mvpMapPoints.end(),static_cast<MapPoint*>(NULL));
 

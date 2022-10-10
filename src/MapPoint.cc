@@ -69,7 +69,7 @@ MapPoint::MapPoint(const cv::Mat &Pos, Map* pMap, Frame* pFrame, const int &idxF
     mNormalVector = mWorldPos - Ow;
     mNormalVector = mNormalVector/cv::norm(mNormalVector); //归一化，方向向量单位长度
 
-    cv::Mat PC = Pos - Ow; //? 
+    cv::Mat PC = Pos - Ow; // Camera坐标系下P点=World坐标系下P点-Camera坐标原点在World坐标系下的坐标
     const float dist = cv::norm(PC); 
     const int level = pFrame->mvKeysUn[idxF].octave;
     const float levelScaleFactor =  pFrame->mvScaleFactors[level];

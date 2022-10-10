@@ -81,7 +81,7 @@ public:
 
     bool isFinished();
 
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW //采用eigen中约定的方式重载该类的new delete等内存分配函数
 
 protected:
 
