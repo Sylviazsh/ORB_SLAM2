@@ -160,8 +160,8 @@ public:
     const int N;
 
     // KeyPoints, stereo coordinate and descriptors (all associated by an index)
-    const std::vector<cv::KeyPoint> mvKeys;
-    const std::vector<cv::KeyPoint> mvKeysUn;
+    const std::vector<cv::KeyPoint> mvKeys; // 畸变矫正前的左目特征点
+    const std::vector<cv::KeyPoint> mvKeysUn; // 畸变矫正后的左目特征点
     const std::vector<float> mvuRight; // negative value for monocular points
     const std::vector<float> mvDepth; // negative value for monocular points
     const cv::Mat mDescriptors;

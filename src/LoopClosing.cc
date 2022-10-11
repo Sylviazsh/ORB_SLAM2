@@ -101,6 +101,7 @@ bool LoopClosing::CheckNewKeyFrames()
     return(!mlpLoopKeyFrameQueue.empty());
 }
 
+// 参考[https://blog.csdn.net/weixin_43994113/article/details/98211045]
 bool LoopClosing::DetectLoop()
 {
     {
@@ -174,10 +175,10 @@ bool LoopClosing::DetectLoop()
             bool bConsistent = false;
             for(set<KeyFrame*>::iterator sit=spCandidateGroup.begin(), send=spCandidateGroup.end(); sit!=send;sit++)
             {
-                if(sPreviousGroup.count(*sit)) // 舍弃在共视图中与当前帧相连的关键帧
+                if(sPreviousGroup.count(*sit)) // 如果有一帧共同存在于“子候选组”与之前的“子连续组”，那么“子候选组”与该“子连续组”连续
                 {
-                    bConsistent=true;
-                    bConsistentForSomeGroup=true;
+                    bConsistent=true; // 该“子候选组”与该“子连续组”相连
+                    bConsistentForSomeGroup=true; // 该“子候选组”至少与一个”子连续组“相连
                     break;
                 }
             }
@@ -478,7 +479,7 @@ void LoopClosing::CorrectLoop()
         }
 
         // Correct all MapPoints obsrved by current keyframe and neighbors, so that they align with the other side of the loop
-        // 1.2.将Sim3位姿传播到局部地图点上
+        // 1.2.将Sim3位姿传播到局部地图点上 //? 没看懂操作思路
         for(KeyFrameAndPose::iterator mit=CorrectedSim3.begin(), mend=CorrectedSim3.end(); mit!=mend; mit++)
         {
             KeyFrame* pKFi = mit->first;

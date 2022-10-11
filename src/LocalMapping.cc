@@ -139,7 +139,6 @@ void LocalMapping::ProcessNewKeyFrame()
     // Associate MapPoints to the new keyframe and update normal and descriptor
     // 根据地图点中是否观测到当前关键帧判断该地图是是否是新生成的
     const vector<MapPoint*> vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
-
     for(size_t i=0; i<vpMapPointMatches.size(); i++)
     {
         MapPoint* pMP = vpMapPointMatches[i];
@@ -188,7 +187,7 @@ void LocalMapping::MapPointCulling()
         {
             lit = mlpRecentAddedMapPoints.erase(lit);
         }
-        else if(pMP->GetFoundRatio()<0.25f ) //召回率<0.25
+        else if(pMP->GetFoundRatio()<0.25f )
         {
             pMP->SetBadFlag();
             lit = mlpRecentAddedMapPoints.erase(lit);
@@ -283,7 +282,7 @@ void LocalMapping::CreateNewMapPoints()
         const float &invfx2 = pKF2->invfx;
         const float &invfy2 = pKF2->invfy;
 
-        // Triangulate each match
+        // Triangulate each match //?
         const int nmatches = vMatchedIndices.size();
         for(int ikp=0; ikp<nmatches; ikp++)
         {
@@ -362,7 +361,7 @@ void LocalMapping::CreateNewMapPoints()
                 continue;
 
             //Check reprojection error in first keyframe
-            const float &sigmaSquare1 = mpCurrentKeyFrame->mvLevelSigma2[kp1.octave]; // octave代表是从金字塔哪一层提取的得到的数据
+            const float &sigmaSquare1 = mpCurrentKeyFrame->mvLevelSigma2[kp1.octave]; //? // octave代表是从金字塔哪一层提取的得到的数据
             const float x1 = Rcw1.row(0).dot(x3Dt)+tcw1.at<float>(0);
             const float y1 = Rcw1.row(1).dot(x3Dt)+tcw1.at<float>(1);
             const float invz1 = 1.0/z1;
@@ -486,7 +485,7 @@ void LocalMapping::SearchInNeighbors()
     //正向融合: 将当前帧的地图点融合到各共视关键帧中
     ORBmatcher matcher;
     vector<MapPoint*> vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
-    for(vector<KeyFrame*>::iterator vit=vpTargetKFs.begin(), vend=vpTargetKFs.end(); vit!=vend; vit++)
+    for(vector<KeyFrame*>::iterator vit=vpTargetKFs.begin(), vend=vpTargetKFs.end(); vit!=vend; vit++) // 遍历二级关键帧
     {
         KeyFrame* pKFi = *vit;
 
@@ -497,8 +496,7 @@ void LocalMapping::SearchInNeighbors()
     //反向融合: 将各共视关键帧的地图点融合到当前关键帧中
     vector<MapPoint*> vpFuseCandidates;
     vpFuseCandidates.reserve(vpTargetKFs.size()*vpMapPointMatches.size());
-
-    for(vector<KeyFrame*>::iterator vitKF=vpTargetKFs.begin(), vendKF=vpTargetKFs.end(); vitKF!=vendKF; vitKF++)
+    for(vector<KeyFrame*>::iterator vitKF=vpTargetKFs.begin(), vendKF=vpTargetKFs.end(); vitKF!=vendKF; vitKF++) // 遍历二级关键帧
     {
         KeyFrame* pKFi = *vitKF;
 
@@ -669,8 +667,8 @@ void LocalMapping::KeyFrameCulling()
                     nMPs++;
                     if(pMP->Observations()>thObs)
                     {
-                        const int &scaleLevel = pKF->mvKeysUn[i].octave;
-                        const map<KeyFrame*, size_t> observations = pMP->GetObservations();
+                        const int &scaleLevel = pKF->mvKeysUn[i].octave; // （矫正后）特征点从金字塔哪一级提取的
+                        const map<KeyFrame*, size_t> observations = pMP->GetObservations(); // 能观测到某地图点的关键帧和该关键帧index的集合
                         int nObs=0;
                         for(map<KeyFrame*, size_t>::const_iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
                         {
@@ -679,14 +677,14 @@ void LocalMapping::KeyFrameCulling()
                                 continue;
                             const int &scaleLeveli = pKFi->mvKeysUn[mit->second].octave;
 
-                            if(scaleLeveli<=scaleLevel+1)
+                            if(scaleLeveli<=scaleLevel+1) //? 在相同尺度下观测？
                             {
                                 nObs++;
-                                if(nObs>=thObs)
+                                if(nObs>=thObs) // 能被超过3个其它关键帧观测到
                                     break;
                             }
                         }
-                        if(nObs>=thObs)
+                        if(nObs>=thObs) // 能被超过3个其它关键帧观测到
                         {
                             nRedundantObservations++;
                         }
@@ -695,7 +693,7 @@ void LocalMapping::KeyFrameCulling()
             }
         }  
 
-        if(nRedundantObservations>0.9*nMPs) //若关键帧超过90%的地图点能被超过3个其它关键帧观测到,则视为冗余关键帧
+        if(nRedundantObservations>0.9*nMPs) //若关键帧超过90%的地图点能在相同尺度下被超过3个其它关键帧观测到,则视为冗余关键帧
             pKF->SetBadFlag();
     }
 }

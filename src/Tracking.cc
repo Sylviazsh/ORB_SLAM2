@@ -392,7 +392,7 @@ void Tracking::Track()
             }
         }
 
-        mCurrentFrame.mpReferenceKF = mpReferenceKF; // 将最新的关键帧作为当前帧的参考关键帧
+        mCurrentFrame.mpReferenceKF = mpReferenceKF;
 
         // If we have an initial estimation of the camera pose and matching. Track the local map.
         // 前面只是跟踪一帧得到初始位姿，这里搜索局部关键帧、局部地图点，和当前帧进行投影匹配，得到更多匹配的MapPoints后进行Pose优化
@@ -428,7 +428,7 @@ void Tracking::Track()
                 cv::Mat LastTwc = cv::Mat::eye(4,4,CV_32F);
                 mLastFrame.GetRotationInverse().copyTo(LastTwc.rowRange(0,3).colRange(0,3));
                 mLastFrame.GetCameraCenter().copyTo(LastTwc.rowRange(0,3).col(3));
-                mVelocity = mCurrentFrame.mTcw*LastTwc; //?
+                mVelocity = mCurrentFrame.mTcw*LastTwc; //? 为什么
             }
             else
                 mVelocity = cv::Mat(); //否则速度为空
@@ -766,7 +766,7 @@ bool Tracking::TrackReferenceKeyFrame()
     ORBmatcher matcher(0.7,true);
     vector<MapPoint*> vpMapPointMatches;
 
-    int nmatches = matcher.SearchByBoW(mpReferenceKF,mCurrentFrame,vpMapPointMatches); //利用词袋BoW，加速匹配速度
+    int nmatches = matcher.SearchByBoW(mpReferenceKF,mCurrentFrame,vpMapPointMatches); //利用词袋BoW，加速匹配速度，寻找当前帧和参考帧的匹配地图点
 
     if(nmatches<15)
         return false;
@@ -782,17 +782,17 @@ bool Tracking::TrackReferenceKeyFrame()
     {
         if(mCurrentFrame.mvpMapPoints[i])
         {
-            if(mCurrentFrame.mvbOutlier[i])
+            if(mCurrentFrame.mvbOutlier[i]) // 如果是异常点
             {
                 MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
 
-                mCurrentFrame.mvpMapPoints[i]=static_cast<MapPoint*>(NULL);
+                mCurrentFrame.mvpMapPoints[i]=static_cast<MapPoint*>(NULL); // 删去该点
                 mCurrentFrame.mvbOutlier[i]=false;
                 pMP->mbTrackInView = false;
                 pMP->mnLastFrameSeen = mCurrentFrame.mnId;
                 nmatches--;
             }
-            else if(mCurrentFrame.mvpMapPoints[i]->Observations()>0)
+            else if(mCurrentFrame.mvpMapPoints[i]->Observations()>0) //不是异常点，则增加统计数
                 nmatchesMap++;
         }
     }
@@ -874,7 +874,7 @@ bool Tracking::TrackWithMotionModel()
     // Create "visual odometry" points if in Localization Mode
     UpdateLastFrame();
 
-    mCurrentFrame.SetPose(mVelocity*mLastFrame.mTcw);// Tcw就是World坐标系原点在Camera坐标系的坐标,Tcw*Pw表示将w坐标系中的点坐标转换到c坐标系
+    mCurrentFrame.SetPose(mVelocity*mLastFrame.mTcw); //? 为什么可以直接用速度去SetPose // Tcw是World坐标系原点在Camera坐标系的坐标,Tcw*Pw表示将w坐标系中的点坐标转换到c坐标系
 
     fill(mCurrentFrame.mvpMapPoints.begin(),mCurrentFrame.mvpMapPoints.end(),static_cast<MapPoint*>(NULL));
 

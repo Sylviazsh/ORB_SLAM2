@@ -1453,7 +1453,7 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
         }
     }
 
-    //Apply rotation consistency
+    //Apply rotation consistency 根据方向剔除误匹配的点
     if(mbCheckOrientation)
     {
         int ind1=-1;
