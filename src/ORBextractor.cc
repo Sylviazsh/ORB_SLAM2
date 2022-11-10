@@ -59,6 +59,7 @@
 #include <opencv2/features2d/features2d.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <vector>
+#include <iostream>
 
 #include "ORBextractor.h"
 
@@ -75,16 +76,18 @@ const int HALF_PATCH_SIZE = 15; //patch圆的半径
 const int EDGE_THRESHOLD = 19;
 
 //灰度质心求角度 Orientation by Intensity Centroid 参考[https://blog.csdn.net/qq_44047943/article/details/109730390]
-static float IC_Angle(const Mat& image, Point2f pt,  const vector<int> & u_max)
+float IC_Angle(const Mat& image, Point2f pt,  const vector<int> & u_max)
 {
     int m_01 = 0, m_10 = 0;//初始化图像块的矩;X,Y方向上的质心
 
+    // 指向uchar的指针，相当于一个数组
     const uchar* center = &image.at<uchar> (cvRound(pt.y), cvRound(pt.x)); //? 为什么先y再x? //cvRound 四舍五入，返回整数
 
     // Treat the center line differently, v=0
     // v=0中心线的计算需要特殊对待,由于是中心行+若干行对，所以PATCH_SIZE应该是个奇数
-    for (int u = -HALF_PATCH_SIZE; u <= HALF_PATCH_SIZE; ++u)
-        m_10 += u * center[u];
+    for (int u = -HALF_PATCH_SIZE; u <= HALF_PATCH_SIZE; ++u){
+        m_10 += u * center[u]; //u为负数时，即取center左边u位的像素，u为正数时，取右边u位的像素
+    }
 
     // Go line by line in the circuI853lar patch
     int step = (int)image.step1();//图像一行包含的字节总数 参考[https://blog.csdn.net/qianqing13579/article/details/45318279]
@@ -572,30 +575,31 @@ vector<cv::KeyPoint> ORBextractor::DistributeOctTree(const vector<cv::KeyPoint>&
                                        const int &maxX, const int &minY, const int &maxY, const int &N, const int &level)
 {
     // Compute how many initial nodes   
-    const int nIni = round(static_cast<float>(maxX-minX)/(maxY-minY)); //根据宽高比确定初始节点数目
+    const int nIni = round(static_cast<float>(maxX-minX)/(maxY-minY)); //根据宽高比确定初始节点数目，宽是高的几倍就创建几个节点
 
     const float hX = static_cast<float>(maxX-minX)/nIni; //一个初始的节点的x方向有多少个像素
 
     list<ExtractorNode> lNodes;
 
-    vector<ExtractorNode*> vpIniNodes;
+    vector<ExtractorNode*> vpIniNodes; //用于特征点分配时便于索引
     vpIniNodes.resize(nIni);
 
+    // 遍历初始节点
     for(int i=0; i<nIni; i++)
     {
         //设置提取器节点并设置边界，和提取FAST角点区域相同，都是“半径扩充图像”，特征点坐标从0 开始
-        ExtractorNode ni;
+        ExtractorNode ni; //包含区域边界、特征点
         ni.UL = cv::Point2i(hX*static_cast<float>(i),0);
         ni.UR = cv::Point2i(hX*static_cast<float>(i+1),0);
         ni.BL = cv::Point2i(ni.UL.x,maxY-minY);
         ni.BR = cv::Point2i(ni.UR.x,maxY-minY);
-        ni.vKeys.reserve(vToDistributeKeys.size()); //保存有当前节点的特征点（临时变量）
+        ni.vKeys.reserve(vToDistributeKeys.size()); //开辟空间，大小为特征点总数
 
         lNodes.push_back(ni);
-        vpIniNodes[i] = &lNodes.back(); //存储这个初始的提取器节点句柄
+        vpIniNodes[i] = &lNodes.back(); //存储这个初始的提取器节点句柄，用于特征点分配时便于索引
     }
 
-    //Associate points to childs 将特征点分配到子提取器节点中
+    //Associate points to childs 将特征点分配到子提取器节点中 按照特征点x轴位置分发到一行节点中
     for(size_t i=0;i<vToDistributeKeys.size();i++)
     {
         const cv::KeyPoint &kp = vToDistributeKeys[i];
@@ -614,7 +618,7 @@ vector<cv::KeyPoint> ORBextractor::DistributeOctTree(const vector<cv::KeyPoint>&
         else if(lit->vKeys.empty()) //若该节点内特征点数目等于0，则删除该节点。
             lit = lNodes.erase(lit);
         else
-            lit++; //若该节点内特征点数目大于1，则将节点分裂成四个小结点。
+            lit++; //若该节点内特征点数目大于1，bNoMore=false 即将节点分裂成四个小结点。
     }
 
     bool bFinish = false;
@@ -638,13 +642,13 @@ vector<cv::KeyPoint> ORBextractor::DistributeOctTree(const vector<cv::KeyPoint>&
 
         while(lit!=lNodes.end())
         {
-            if(lit->bNoMore)
+            if(lit->bNoMore) //该节点不再分裂
             {
                 // If node only contains one point do not subdivide and continue
                 lit++;
                 continue;
             }
-            else
+            else //该节点需要分裂
             {
                 // If more than one point, subdivide
                 ExtractorNode n1,n2,n3,n4;
@@ -819,7 +823,7 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoin
 
         const int nCols = width/W;
         const int nRows = height/W;
-        const int wCell = ceil(width/nCols);
+        const int wCell = ceil(width/nCols); //向上取整
         const int hCell = ceil(height/nRows);
 
         for(int i=0; i<nRows; i++)

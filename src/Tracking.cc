@@ -264,6 +264,7 @@ cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp)
     return mCurrentFrame.mTcw.clone();
 }
 
+// track包含两部分：估计运动、跟踪局部地图
 void Tracking::Track()
 {
     if(mState==NO_IMAGES_YET)
@@ -568,10 +569,13 @@ void Tracking::MonocularInitialization()
     if(!mpInitializer)
     {
         // Set Reference Frame
-        if(mCurrentFrame.mvKeys.size()>100)
+        if(mCurrentFrame.mvKeys.size()>100) // 单目初始帧的特征点数必须大于100
         {
+            // 初始化需要两帧，分别是mInitialFrame，mCurrentFrame
             mInitialFrame = Frame(mCurrentFrame);
             mLastFrame = Frame(mCurrentFrame);
+
+            // 记录"上一帧"所有特征点
             mvbPrevMatched.resize(mCurrentFrame.mvKeysUn.size());
             for(size_t i=0; i<mCurrentFrame.mvKeysUn.size(); i++)
                 mvbPrevMatched[i]=mCurrentFrame.mvKeysUn[i].pt;
@@ -581,6 +585,7 @@ void Tracking::MonocularInitialization()
 
             mpInitializer =  new Initializer(mCurrentFrame,1.0,200);
 
+            // 初始化为-1 表示没有任何匹配。这里面存储的是匹配的点的id
             fill(mvIniMatches.begin(),mvIniMatches.end(),-1);
 
             return;
@@ -589,6 +594,7 @@ void Tracking::MonocularInitialization()
     else
     {
         // Try to initialize
+        // 如果初始化器已被创建，如果当前帧特征点数小于100，则删除这个初始化器
         if((int)mCurrentFrame.mvKeys.size()<=100)
         {
             delete mpInitializer;
@@ -598,10 +604,12 @@ void Tracking::MonocularInitialization()
         }
 
         // Find correspondences
-        ORBmatcher matcher(0.9,true);
+        // 对初始帧和当前帧特征匹配
+        ORBmatcher matcher(0.9,true); //0.9是最佳的和次佳特征点评分的比值阈值，这里是比较宽松的，跟踪时一般是0.7。true是检查特征点的方向
         int nmatches = matcher.SearchForInitialization(mInitialFrame,mCurrentFrame,mvbPrevMatched,mvIniMatches,100);
 
         // Check if there are enough correspondences
+        // 验证匹配结果，如果初始化的两帧之间的匹配点太少，删除初始化器，重新初始化
         if(nmatches<100)
         {
             delete mpInitializer;

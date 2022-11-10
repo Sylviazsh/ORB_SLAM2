@@ -227,13 +227,16 @@ Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extra
     AssignFeaturesToGrid();
 }
 
+// 将提取的ORB特征点分配到图像网格中 [参考:https://blog.csdn.net/qq_41694024/article/details/126316590]
 void Frame::AssignFeaturesToGrid()
 {
+    // 给存储特征点的网格数组 Frame::mGrid 预分配空间
     int nReserve = 0.5f*N/(FRAME_GRID_COLS*FRAME_GRID_ROWS);
     for(unsigned int i=0; i<FRAME_GRID_COLS;i++)
         for (unsigned int j=0; j<FRAME_GRID_ROWS;j++)
             mGrid[i][j].reserve(nReserve);
 
+    // 遍历每个特征点，将每个特征点在mvKeysUn中的索引值放到对应的网格mGrid中
     for(int i=0;i<N;i++)
     {
         const cv::KeyPoint &kp = mvKeysUn[i];
@@ -324,12 +327,23 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     return true;
 }
 
+/**
+ * @brief 在圆形(实际上是矩形)区域内寻找特征点 [参考:https://blog.csdn.net/klsjadkls/article/details/115654124]
+ * @param x 特征点坐标x
+ * @param y 特征点坐标y
+ * @param r 搜索半径
+ * @param minLevel 最小金字塔层级
+ * @param maxLevel 最大金字塔层级
+ * @return vIndices 返回搜索到的候选匹配点id
+*/
 vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel, const int maxLevel) const
 {
     vector<size_t> vIndices;
     vIndices.reserve(N);
 
+    // 计算半径为r圆左右上下边界所在的网格列和行的id
     const int nMinCellX = max(0,(int)floor((x-mnMinX-r)*mfGridElementWidthInv));
+    // 如果最终求得的圆的左边界所在的网格列超过了设定了上限，说明计算出错，找不到符合要求的特征点，返回空vector
     if(nMinCellX>=FRAME_GRID_COLS)
         return vIndices;
 
@@ -345,8 +359,10 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
     if(nMaxCellY<0)
         return vIndices;
 
+    // 检查需要搜索的图像金字塔层数范围是否符合要求
     const bool bCheckLevels = (minLevel>0) || (maxLevel>=0);
 
+    // 遍历圆形(实际上是矩形)区域内的所有网格，寻找满足条件的候选特征点，并将其index放到输出里
     for(int ix = nMinCellX; ix<=nMaxCellX; ix++)
     {
         for(int iy = nMinCellY; iy<=nMaxCellY; iy++)
@@ -358,8 +374,10 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
             for(size_t j=0, jend=vCell.size(); j<jend; j++)
             {
                 const cv::KeyPoint &kpUn = mvKeysUn[vCell[j]];
-                if(bCheckLevels)
+                if(bCheckLevels) // 保证给定的搜索金字塔层级范围合法
                 {
+                    // cv::KeyPoint::octave中表示从金字塔的哪一层提取的数据
+					// 保证特征点是在金字塔层级minLevel和maxLevel之间，不是的话跳过
                     if(kpUn.octave<minLevel)
                         continue;
                     if(maxLevel>=0)
@@ -367,9 +385,11 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
                             continue;
                 }
 
+                // 计算候选特征点到圆中心的距离，查看是否是在这个圆形区域之内
                 const float distx = kpUn.pt.x-x;
                 const float disty = kpUn.pt.y-y;
 
+                // 如果x方向和y方向的距离都在指定的半径之内，存储其index为候选特征点
                 if(fabs(distx)<r && fabs(disty)<r)
                     vIndices.push_back(vCell[j]);
             }
@@ -379,12 +399,24 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
     return vIndices;
 }
 
+/**
+ * @brief 计算某个特征点所在网格的网格坐标，如果找到特征点所在的网格坐标，记录在nGridPosX,nGridPosY里，返回true，没找到返回false
+ * 
+ * @param[in] kp                    给定的特征点
+ * @param[in & out] posX            特征点所在网格坐标的横坐标
+ * @param[in & out] posY            特征点所在网格坐标的纵坐标
+ * @return true                     如果找到特征点所在的网格坐标，返回true
+ * @return false                    没找到返回false
+ */
 bool Frame::PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY)
 {
+    // 计算特征点x,y坐标落在哪个网格内，网格坐标为posX，posY
     posX = round((kp.pt.x-mnMinX)*mfGridElementWidthInv);
     posY = round((kp.pt.y-mnMinY)*mfGridElementHeightInv);
 
-    //Keypoint's coordinates are undistorted, which could cause to go out of the image
+    // Keypoint's coordinates are undistorted, which could cause to go out of the image
+    // 因为特征点进行了去畸变，而且前面计算是round取整，所以有可能得到的点落在图像网格坐标外面
+    // 如果网格坐标posX，posY超出了[0,FRAME_GRID_COLS] 和[0,FRAME_GRID_ROWS]，表示该特征点没有对应网格坐标，返回false
     if(posX<0 || posX>=FRAME_GRID_COLS || posY<0 || posY>=FRAME_GRID_ROWS)
         return false;
 
@@ -401,28 +433,35 @@ void Frame::ComputeBoW()
     }
 }
 
+// 用内参对特征点去畸变，结果保存在mvKeysUn中 [参考:https://blog.csdn.net/qq_41694024/article/details/126315228]
 void Frame::UndistortKeyPoints()
 {
+    // Step 1 如果第一个畸变参数为0，不需要矫正。第一个畸变参数k1是最重要的，一般不为0，为0的话，说明畸变参数都是0
+	// 变量mDistCoef中存储了opencv指定格式的去畸变参数，格式为：(k1,k2,p1,p2,k3)
     if(mDistCoef.at<float>(0)==0.0)
     {
         mvKeysUn=mvKeys;
         return;
     }
-
+    
+    // Step 2 如果畸变参数不为0，用OpenCV函数进行畸变矫正
+    // N为提取的特征点数量，为满足OpenCV函数输入要求，将N个特征点保存在N*2的矩阵中
     // Fill matrix with points
     cv::Mat mat(N,2,CV_32F);
-    for(int i=0; i<N; i++)
+    for(int i=0; i<N; i++) //遍历每个特征点，并将它们的坐标保存到矩阵中
     {
         mat.at<float>(i,0)=mvKeys[i].pt.x;
         mat.at<float>(i,1)=mvKeys[i].pt.y;
     }
 
+    // 函数reshape(int cn,int rows=0) 其中cn为更改后的通道数，rows=0表示这个行将保持原来的参数不变
+    // 为了能够直接调用opencv的函数来去畸变，需要先将矩阵调整为2通道（对应坐标x,y）
     // Undistort points
     mat=mat.reshape(2);
     cv::undistortPoints(mat,mat,mK,mDistCoef,cv::Mat(),mK);
-    mat=mat.reshape(1);
+    mat=mat.reshape(1); //调整回只有一个通道，回归我们正常的处理方式
 
-    // Fill undistorted keypoint vector
+    // Fill undistorted keypoint vector 存储校正后的特征点
     mvKeysUn.resize(N);
     for(int i=0; i<N; i++)
     {
@@ -433,29 +472,34 @@ void Frame::UndistortKeyPoints()
     }
 }
 
+// 计算去畸变图像的边界 [参考:https://blog.csdn.net/qq_41694024/article/details/126315764]
 void Frame::ComputeImageBounds(const cv::Mat &imLeft)
 {
+    // 如果畸变参数不为0，用OpenCV函数进行畸变矫正
     if(mDistCoef.at<float>(0)!=0.0)
     {
+        // 保存矫正前的图像四个边界点坐标： (0,0) (cols,0) (0,rows) (cols,rows)
         cv::Mat mat(4,2,CV_32F);
-        mat.at<float>(0,0)=0.0; mat.at<float>(0,1)=0.0;
-        mat.at<float>(1,0)=imLeft.cols; mat.at<float>(1,1)=0.0;
-        mat.at<float>(2,0)=0.0; mat.at<float>(2,1)=imLeft.rows;
-        mat.at<float>(3,0)=imLeft.cols; mat.at<float>(3,1)=imLeft.rows;
+        mat.at<float>(0,0)=0.0; mat.at<float>(0,1)=0.0; //左上
+        mat.at<float>(1,0)=imLeft.cols; mat.at<float>(1,1)=0.0; //右上
+        mat.at<float>(2,0)=0.0; mat.at<float>(2,1)=imLeft.rows; //左下
+        mat.at<float>(3,0)=imLeft.cols; mat.at<float>(3,1)=imLeft.rows; //右下
 
         // Undistort corners
         mat=mat.reshape(2);
         cv::undistortPoints(mat,mat,mK,mDistCoef,cv::Mat(),mK);
         mat=mat.reshape(1);
 
-        mnMinX = min(mat.at<float>(0,0),mat.at<float>(2,0));
-        mnMaxX = max(mat.at<float>(1,0),mat.at<float>(3,0));
-        mnMinY = min(mat.at<float>(0,1),mat.at<float>(1,1));
-        mnMaxY = max(mat.at<float>(2,1),mat.at<float>(3,1));
+        // 校正后的四个边界点已经不能够围成一个严格的矩形，因此在这个四边形的外侧加边框作为坐标的边界
+        mnMinX = min(mat.at<float>(0,0),mat.at<float>(2,0));//左上和左下横坐标最小的
+        mnMaxX = max(mat.at<float>(1,0),mat.at<float>(3,0));//右上和右下横坐标最大的
+        mnMinY = min(mat.at<float>(0,1),mat.at<float>(1,1));//左上和右上纵坐标最小的
+        mnMaxY = max(mat.at<float>(2,1),mat.at<float>(3,1));//左下和右下纵坐标最小的
 
     }
     else
     {
+        // 如果畸变参数为0，直接获得图像边界
         mnMinX = 0.0f;
         mnMaxX = imLeft.cols;
         mnMinY = 0.0f;

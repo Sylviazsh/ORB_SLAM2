@@ -407,24 +407,35 @@ int ORBmatcher::SearchByProjection(KeyFrame* pKF, cv::Mat Scw, const vector<MapP
     return nmatches;
 }
 
+/**
+ * @brief 对初始帧和当前帧特征匹配
+ * @param F1 初始帧
+ * @param F2 当前帧
+ * @param vbPrevMatched 存储初始帧匹配到的特征点
+ * @param vnMatches12 存储F1与F2的特征点匹配关系
+ * @param windowSize 窗口大小
+ * @return nmatches 匹配上的特征个数
+*/
 int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f> &vbPrevMatched, vector<int> &vnMatches12, int windowSize)
 {
     int nmatches=0;
-    vnMatches12 = vector<int>(F1.mvKeysUn.size(),-1);
+    vnMatches12 = vector<int>(F1.mvKeysUn.size(),-1); // 值为-1表示F2中没有对应的匹配
 
-    vector<int> rotHist[HISTO_LENGTH];
+    vector<int> rotHist[HISTO_LENGTH]; // 旋转直方图
     for(int i=0;i<HISTO_LENGTH;i++)
-        rotHist[i].reserve(500);
+        rotHist[i].reserve(500); // 每个bin里预分配500个，因为使用的是vector，不够的话可以自动扩展容量
     //! 原作者代码是 const float factor = 1.0f/HISTO_LENGTH; 是错误的，更改为下面代码  
     const float factor = HISTO_LENGTH/360.0f;
 
-    vector<int> vMatchedDistance(F2.mvKeysUn.size(),INT_MAX);
-    vector<int> vnMatches21(F2.mvKeysUn.size(),-1);
+    vector<int> vMatchedDistance(F2.mvKeysUn.size(),INT_MAX); // 存储F1 F2特征点匹配距离
+    vector<int> vnMatches21(F2.mvKeysUn.size(),-1); // 存储F2与F1的特征点匹配关系（与vnMatches12成反向匹配）
 
+    // 遍历F1中的特征点
     for(size_t i1=0, iend1=F1.mvKeysUn.size(); i1<iend1; i1++)
     {
         cv::KeyPoint kp1 = F1.mvKeysUn[i1];
         int level1 = kp1.octave;
+        // 如果图像金字塔层数>0则跳过（只关心原始层）
         if(level1>0)
             continue;
 
@@ -1654,8 +1665,10 @@ void ORBmatcher::ComputeThreeMaxima(vector<int>* histo, const int L, int &ind1, 
 
 // Bit set count operation from
 // http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
+// [参考:https://blog.csdn.net/w798396217/article/details/93620407]
 int ORBmatcher::DescriptorDistance(const cv::Mat &a, const cv::Mat &b)
 {
+    // 描述子为256维,计算距离时取32维为一组
     const int *pa = a.ptr<int32_t>();
     const int *pb = b.ptr<int32_t>();
 
@@ -1664,8 +1677,15 @@ int ORBmatcher::DescriptorDistance(const cv::Mat &a, const cv::Mat &b)
     for(int i=0; i<8; i++, pa++, pb++)
     {
         unsigned  int v = *pa ^ *pb;
+        // 将32位分为16组,看每一组中有几个1
+        // 0x55555555->0101 0101 0101 0101，假设某一组为11,则对应输出为10(两个1)
         v = v - ((v >> 1) & 0x55555555);
+        // 将32位分为8组,看原来那个数每8个单位里有几个1
+        // 0x33333333->0011 0011 0011 0011
+        // 这里的v将上一步的2个bit为一组的数转化为这里的4个bit为一组
         v = (v & 0x33333333) + ((v >> 2) & 0x33333333);
+        // 分为4组,每组16bit
+        // *0x1010101并且>>24是只保留原来的后8位,因为最大值是256,也就是8位
         dist += (((v + (v >> 4)) & 0xF0F0F0F) * 0x1010101) >> 24;
     }
 
