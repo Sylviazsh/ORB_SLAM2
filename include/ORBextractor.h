@@ -29,6 +29,10 @@
 namespace ORB_SLAM2
 {
 
+float IC_Angle(const cv::Mat& image, cv::Point2f pt,  const std::vector<int> & u_max);
+int bit_pattern_31_[256*4];
+void computeDescriptors(const cv::Mat &image, std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors, const std::vector<cv::Point> &pattern);
+
 class ExtractorNode
 {
 public:
@@ -84,7 +88,7 @@ public:
 
     std::vector<cv::Mat> mvImagePyramid;
 
-protected:
+public:
 
     void ComputePyramid(cv::Mat image);
     void ComputeKeyPointsOctTree(std::vector<std::vector<cv::KeyPoint> >& allKeypoints);    
@@ -94,11 +98,11 @@ protected:
     void ComputeKeyPointsOld(std::vector<std::vector<cv::KeyPoint> >& allKeypoints);
     std::vector<cv::Point> pattern;
 
-    int nfeatures; //所有层级提取到的特征点数之和金字塔层数
-    double scaleFactor; //图像金字塔相邻层级间的缩放系数
-    int nlevels; //金字塔层级数
-    int iniThFAST; //提取特征点的描述子门槛(高)	
-    int minThFAST; //提取特征点的描述子门槛(低)
+    int nfeatures; //1000，所有层级提取到的特征点数之和金字塔层数
+    double scaleFactor; //1.2，图像金字塔相邻层级间的缩放系数
+    int nlevels; //8，金字塔层级数
+    int iniThFAST; //20%，提取特征点的描述子门槛(高)	
+    int minThFAST; //8%，提取特征点的描述子门槛(低)
 
     std::vector<int> mnFeaturesPerLevel; //金字塔每层级中提取的特征点数正比于图层边长,总和为nfeatures
 
