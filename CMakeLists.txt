@@ -113,3 +113,14 @@ add_executable(mono_euroc
 Examples/Monocular/mono_euroc.cc)
 target_link_libraries(mono_euroc ${PROJECT_NAME})
 
+
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/test)
+
+add_executable(test_ORBextractor
+test/test_ORBextractor.cpp)
+target_link_libraries(test_ORBextractor ${PROJECT_NAME})
+
+add_executable(test_FAST
+test/test_FAST.cpp)
+target_link_libraries(test_FAST ${PROJECT_NAME})
+
