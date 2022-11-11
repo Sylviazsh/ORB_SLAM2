@@ -6,8 +6,11 @@
 #include <thread>
 #include <memory>
 #include <iostream>
+#include <chrono>
 
 #include "ORBextractor.h"
+#include "ORBmatcher.h"
+#include "Converter.h"
 
 using namespace cv;
 using namespace std;
@@ -68,7 +71,7 @@ int main()
     for (uint level = 0; level < OrbExtractor->mvImagePyramid.size(); ++level)
     {
         for (auto point : allKeypoints[level])
-            cv::circle(OrbExtractor->mvImagePyramid[level], point.pt, 3, (255, 255, 255), -1);
+            cv::circle(OrbExtractor->mvImagePyramid[level], point.pt, 3, 255, -1);
         // imshow(to_string(level), OrbExtractor->mvImagePyramid[level]);
     }
 
@@ -78,11 +81,32 @@ int main()
     test_IC_Angle(OrbExtractor->umax);
 
     // 计算描述子
-    // std::vector<cv::Point> pattern;
-    // const Point* pattern0 = (const Point*)ORB_SLAM2::bit_pattern_31_;
-    // std::copy(pattern0, pattern0 + 512, std::back_inserter(pattern));
-    // Mat descriptors;
-    // ORB_SLAM2::computeDescriptors(img, allKeypoints, descriptors, pattern);
+    std::vector<cv::Point> pattern;
+    Mat descriptor1,descriptor2;
+    const Point* pattern0 = (const Point*)ORB_SLAM2::bit_pattern_31_;
+    std::copy(pattern0, pattern0 + 512, std::back_inserter(pattern));
+    ORB_SLAM2::computeDescriptors(img, allKeypoints[0], descriptor1, pattern);
+    ORB_SLAM2::computeDescriptors(img, allKeypoints[1], descriptor2, pattern);
+    cout << "descriptor1" << descriptor1 << endl;
+
+    // 计算描述子距离
+    //! 先取消注释ORBmatcher::DescriptorDistance中的所有PrintBinary函数，才会打印计算过程
+    std::unique_ptr<ORB_SLAM2::ORBmatcher> OrbMatcher = std::make_unique<ORB_SLAM2::ORBmatcher>();
+    cout << "----------DescriptorDistance----------" << endl;
+    int distance = OrbMatcher->DescriptorDistance(descriptor1, descriptor2);
+    cout << "distance=" << distance << endl << endl;
+
+    // 计算BoW
+    DBoW2::BowVector bow; // std::map<WordId, WordValue>
+    DBoW2::FeatureVector featrue; // std::map<NodeId, std::vector<unsigned int>>
+    ORB_SLAM2::ORBVocabulary *mpVocabulary = new ORB_SLAM2::ORBVocabulary();
+    cout << "loadFromTextFile..." << endl;
+    mpVocabulary->loadFromTextFile("/home/zhoush/Documents/ORB_SLAM2/Vocabulary/ORBvoc.txt");
+    vector<cv::Mat> vCurrentDesc = ORB_SLAM2::Converter::toDescriptorVector(descriptor1);
+    mpVocabulary->transform(vCurrentDesc,bow,featrue,4);
+    cout << "----------ComputeBoW----------" << endl;
+    cout << "BoW=" << bow << endl << endl;
+    cout << "Featrue=" << featrue << endl;
 
     cv::waitKey(0);
 }
