@@ -277,7 +277,12 @@ float MapPoint::GetFoundRatio()
 
 /**
  * @brief 计算最匹配的描述子
+ * 由于一个MapPoint会被许多相机观测到，则会相应算出多个描述子
+ * 因此在插入关键帧后，需要判断是否更新当前点的最适合的描述子
  * 
+ * 最好的描述子与其他描述子应该具有最小的平均距离，相当于多个描述子的中心，最具有代表性
+ * 因此先获得当前点的所有描述子，然后计算描述子之间的两两距离，对所有距离取平均，
+ * 最后找离这个中值距离最近的描述子
  */
 void MapPoint::ComputeDistinctiveDescriptors()
 {
@@ -303,7 +308,7 @@ void MapPoint::ComputeDistinctiveDescriptors()
         KeyFrame* pKF = mit->first;
 
         if(!pKF->isBad())
-            vDescriptors.push_back(pKF->mDescriptors.row(mit->second)); //针对每帧的对应的都提取其描述子
+            vDescriptors.push_back(pKF->mDescriptors.row(mit->second)); //针对每帧的对应点都提取其描述子
     }
 
     if(vDescriptors.empty())
@@ -368,6 +373,9 @@ bool MapPoint::IsInKeyFrame(KeyFrame *pKF)
     return (mObservations.count(pKF));
 }
 
+// 更新当前地图点的平均观测方向和距离
+// 其中平均观测方向是根据mObservations中所有观测到本地图点的关键帧取平均得到的
+// 平均观测距离是根据参考关键帧得到的
 void MapPoint::UpdateNormalAndDepth()
 {
     // 1.获取地图点相关信息

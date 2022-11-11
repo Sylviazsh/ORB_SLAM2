@@ -41,16 +41,20 @@ Initializer::Initializer(const Frame &ReferenceFrame, float sigma, int iteration
     mMaxIterations = iterations;
 }
 
+// 根据参考帧和当前帧的匹配关系恢复帧间运动并计算地图点位姿
+// 利用八点法的对极约束，启动两个线程分别计算单应矩阵和基础矩阵，并通过score判断用单应矩阵回复运动轨迹还是使用基础矩阵回复运动轨迹
+// [参考:https://blog.csdn.net/ncepu_chen/article/details/116784929]
 bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatches12, cv::Mat &R21, cv::Mat &t21,
                              vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated)
 {
     // Fill structures with current keypoints and matches with reference frame
     // Reference Frame: 1, Current Frame: 2
-    mvKeys2 = CurrentFrame.mvKeysUn;
+    mvKeys2 = CurrentFrame.mvKeysUn; // 参考帧已经在Initializer对象创建时指定，只要指定当前帧即可
 
     mvMatches12.clear();
     mvMatches12.reserve(mvKeys2.size());
     mvbMatched1.resize(mvKeys1.size());
+    // 将vMatches12拷贝到mvMatches12,mvMatches12只保存匹配上的特征点对
     for(size_t i=0, iend=vMatches12.size();i<iend; i++)
     {
         if(vMatches12[i]>=0)
@@ -74,33 +78,31 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
         vAllIndices.push_back(i);
     }
 
-    // Generate sets of 8 points for each RANSAC iteration
+    // Generate sets of 8 points for each RANSAC iteration 
+    // 准备RANSAC运算中需要的特征点对
     mvSets = vector< vector<size_t> >(mMaxIterations,vector<size_t>(8,0));
-
     DUtils::Random::SeedRandOnce(0);
-
     for(int it=0; it<mMaxIterations; it++)
     {
         vAvailableIndices = vAllIndices;
-
         // Select a minimum set
         for(size_t j=0; j<8; j++)
         {
             int randi = DUtils::Random::RandomInt(0,vAvailableIndices.size()-1);
             int idx = vAvailableIndices[randi];
-
             mvSets[it][j] = idx;
-
             vAvailableIndices[randi] = vAvailableIndices.back();
             vAvailableIndices.pop_back();
         }
     }
 
     // Launch threads to compute in parallel a fundamental matrix and a homography
+    // 计算F矩阵和H矩阵及其置信程度
     vector<bool> vbMatchesInliersH, vbMatchesInliersF;
     float SH, SF;
     cv::Mat H, F;
 
+    // 利用八点法的对极约束，启动两个线程分别计算单应矩阵和基础矩阵
     thread threadH(&Initializer::FindHomography,this,ref(vbMatchesInliersH), ref(SH), ref(H));
     thread threadF(&Initializer::FindFundamental,this,ref(vbMatchesInliersF), ref(SF), ref(F));
 
@@ -108,7 +110,7 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
     threadH.join();
     threadF.join();
 
-    // Compute ratio of scores
+    // Compute ratio of scores 根据比分计算使用哪个矩阵恢复运动
     float RH = SH/(SH+SF);
 
     // Try to reconstruct from homography or fundamental depending on the ratio (0.40-0.45)
@@ -120,7 +122,9 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
     return false;
 }
 
-
+// 正常来说只用4对匹配点就可以计算单应矩阵H
+// 但ORB-SLAM2每次RANSAC迭代取8对匹配点来计算H.
+// 可能是为了和八点法计算基础矩阵H相对应,都使用8对匹配点来计算,便于后面比较分数优劣
 void Initializer::FindHomography(vector<bool> &vbMatchesInliers, float &score, cv::Mat &H21)
 {
     // Number of putative matches
@@ -171,22 +175,22 @@ void Initializer::FindHomography(vector<bool> &vbMatchesInliers, float &score, c
     }
 }
 
-
+// 计算基础矩阵F
 void Initializer::FindFundamental(vector<bool> &vbMatchesInliers, float &score, cv::Mat &F21)
 {
     // Number of putative matches
     const int N = vbMatchesInliers.size();
 
-    // Normalize coordinates
+    // Normalize coordinates 特征点归一化
     vector<cv::Point2f> vPn1, vPn2;
     cv::Mat T1, T2;
     Normalize(mvKeys1,vPn1, T1);
     Normalize(mvKeys2,vPn2, T2);
-    cv::Mat T2t = T2.t();
+    cv::Mat T2t = T2.t(); // 用于恢复原始尺度
 
     // Best Results variables
-    score = 0.0;
-    vbMatchesInliers = vector<bool>(N,false);
+    score = 0.0; // 最优解得分
+    vbMatchesInliers = vector<bool>(N,false); // 最优解对应的内点
 
     // Iteration variables
     vector<cv::Point2f> vPn1i(8);
@@ -196,6 +200,7 @@ void Initializer::FindFundamental(vector<bool> &vbMatchesInliers, float &score, 
     float currentScore;
 
     // Perform all RANSAC iterations and save the solution with highest score
+    // RANSAC循环 [参考:https://blog.csdn.net/u013925378/article/details/82907502]
     for(int it=0; it<mMaxIterations; it++)
     {
         // Select a minimum set
@@ -203,17 +208,17 @@ void Initializer::FindFundamental(vector<bool> &vbMatchesInliers, float &score, 
         {
             int idx = mvSets[it][j];
 
-            vPn1i[j] = vPn1[mvMatches12[idx].first];
-            vPn2i[j] = vPn2[mvMatches12[idx].second];
+            vPn1i[j] = vPn1[mvMatches12[idx].first]; // first存储在参考帧1中的特征点索引
+            vPn2i[j] = vPn2[mvMatches12[idx].second]; // second存储在当前帧2中的特征点索引
         }
 
-        cv::Mat Fn = ComputeF21(vPn1i,vPn2i);
+        cv::Mat Fn = ComputeF21(vPn1i,vPn2i); // 八点法计算单应矩阵H
 
-        F21i = T2t*Fn*T1;
+        F21i = T2t*Fn*T1; // 恢复原始尺度
 
-        currentScore = CheckFundamental(F21i, vbCurrentInliers, mSigma);
+        currentScore = CheckFundamental(F21i, vbCurrentInliers, mSigma); // 根据重投影误差进行卡方检验
 
-        if(currentScore>score)
+        if(currentScore>score) // 记录最优解
         {
             F21 = F21i.clone();
             vbMatchesInliers = vbCurrentInliers;
@@ -265,12 +270,14 @@ cv::Mat Initializer::ComputeH21(const vector<cv::Point2f> &vP1, const vector<cv:
     return vt.row(8).reshape(0, 3);
 }
 
+// 八点法计算F矩阵 [参考:https://blog.csdn.net/ncepu_chen/article/details/116784929]
+// A矩阵是一个8×9的矩阵,x是一个9×1的向量;A*x=0是一个超定方程,使用SVD分解求最小二乘解
 cv::Mat Initializer::ComputeF21(const vector<cv::Point2f> &vP1,const vector<cv::Point2f> &vP2)
 {
     const int N = vP1.size();
 
+    // 构造A矩阵
     cv::Mat A(N,9,CV_32F);
-
     for(int i=0; i<N; i++)
     {
         const float u1 = vP1[i].x;
@@ -291,9 +298,9 @@ cv::Mat Initializer::ComputeF21(const vector<cv::Point2f> &vP1,const vector<cv::
 
     cv::Mat u,w,vt;
 
-    cv::SVDecomp(A,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
+    cv::SVDecomp(A,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV); // 奇异值分解
 
-    cv::Mat Fpre = vt.row(8).reshape(0, 3);
+    cv::Mat Fpre = vt.row(8).reshape(0, 3); // vt的最后一列
 
     cv::SVDecomp(Fpre,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
 
@@ -387,6 +394,9 @@ float Initializer::CheckHomography(const cv::Mat &H21, const cv::Mat &H12, vecto
     return score;
 }
 
+// 卡方检验计算置信度得分
+// 卡方检验通过构造检验统计量X^2来比较期望结果和实际结果之间的差别,从而得出观察频数极值的发生概率
+// [参考:https://blog.csdn.net/ncepu_chen/article/details/116784929]
 float Initializer::CheckFundamental(const cv::Mat &F21, vector<bool> &vbMatchesInliers, float sigma)
 {
     const int N = mvMatches12.size();
@@ -401,22 +411,23 @@ float Initializer::CheckFundamental(const cv::Mat &F21, vector<bool> &vbMatchesI
     const float f32 = F21.at<float>(2,1);
     const float f33 = F21.at<float>(2,2);
 
-    vbMatchesInliers.resize(N);
+    vbMatchesInliers.resize(N); // 标记是否是内点
 
-    float score = 0;
+    float score = 0; // 置信度得分
 
     const float th = 3.841;
-    const float thScore = 5.991;
+    const float thScore = 5.991; // 自由度为2,显著性水平为0.05的卡方分布对应的临界阈值
 
-    const float invSigmaSquare = 1.0/(sigma*sigma);
+    const float invSigmaSquare = 1.0/(sigma*sigma); // 信息矩阵,方差平方的倒数
 
+    // 双向投影,计算加权投影误差
     for(int i=0; i<N; i++)
     {
         bool bIn = true;
 
+        // 提取特征点对
         const cv::KeyPoint &kp1 = mvKeys1[mvMatches12[i].first];
         const cv::KeyPoint &kp2 = mvKeys2[mvMatches12[i].second];
-
         const float u1 = kp1.pt.x;
         const float v1 = kp1.pt.y;
         const float u2 = kp2.pt.x;
@@ -424,17 +435,15 @@ float Initializer::CheckFundamental(const cv::Mat &F21, vector<bool> &vbMatchesI
 
         // Reprojection error in second image
         // l2=F21x1=(a2,b2,c2)
-
+        // 计算img2到img1的重投影误差
         const float a2 = f11*u1+f12*v1+f13;
         const float b2 = f21*u1+f22*v1+f23;
         const float c2 = f31*u1+f32*v1+f33;
-
         const float num2 = a2*u2+b2*v2+c2;
-
         const float squareDist1 = num2*num2/(a2*a2+b2*b2);
-
         const float chiSquare1 = squareDist1*invSigmaSquare;
 
+        // 标记离群点,非离群点累加计算得分
         if(chiSquare1>th)
             bIn = false;
         else
@@ -442,15 +451,12 @@ float Initializer::CheckFundamental(const cv::Mat &F21, vector<bool> &vbMatchesI
 
         // Reprojection error in second image
         // l1 =x2tF21=(a1,b1,c1)
-
+        // 计算img1到img2的重投影误差
         const float a1 = f11*u2+f21*v2+f31;
         const float b1 = f12*u2+f22*v2+f32;
         const float c1 = f13*u2+f23*v2+f33;
-
         const float num1 = a1*u1+b1*v1+c1;
-
         const float squareDist2 = num1*num1/(a1*a1+b1*b1);
-
         const float chiSquare2 = squareDist2*invSigmaSquare;
 
         if(chiSquare2>th)
@@ -467,6 +473,9 @@ float Initializer::CheckFundamental(const cv::Mat &F21, vector<bool> &vbMatchesI
     return score;
 }
 
+// 使用基础矩阵F恢复运动
+// 使用基础矩阵F分解R、t,数学上会得到四个可能的解,
+// 因此分解后调用函数Initializer::CheckRT()检验分解结果,取相机前方成功三角化数目最多的一组解
 bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv::Mat &K,
                             cv::Mat &R21, cv::Mat &t21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated, float minParallax, int minTriangulated)
 {
@@ -475,18 +484,18 @@ bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv:
         if(vbMatchesInliers[i])
             N++;
 
-    // Compute Essential Matrix from Fundamental Matrix
+    // Compute Essential Matrix from Fundamental Matrix 根据基础矩阵F推算本质矩阵E
     cv::Mat E21 = K.t()*F21*K;
 
     cv::Mat R1, R2, t;
 
-    // Recover the 4 motion hypotheses
+    // Recover the 4 motion hypotheses 分解本质矩阵E,得到R,t
     DecomposeE(E21,R1,R2,t);  
 
     cv::Mat t1=t;
     cv::Mat t2=-t;
 
-    // Reconstruct with the 4 hyphoteses and check
+    // Reconstruct with the 4 hyphoteses and check 检验分解出的4对R,t
     vector<cv::Point3f> vP3D1, vP3D2, vP3D3, vP3D4;
     vector<bool> vbTriangulated1,vbTriangulated2,vbTriangulated3, vbTriangulated4;
     float parallax1,parallax2, parallax3, parallax4;
@@ -503,6 +512,7 @@ bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv:
 
     int nMinGood = max(static_cast<int>(0.9*N),minTriangulated);
 
+    // ratio test,最优分解应有区分度
     int nsimilar = 0;
     if(nGood1>0.7*maxGood)
         nsimilar++;
@@ -514,6 +524,7 @@ bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv:
         nsimilar++;
 
     // If there is not a clear winner or not enough triangulated points reject initialization
+    // 选择记录最佳结果,检验三角化出的特征点数和视差角
     if(maxGood<nMinGood || nsimilar>1)
     {
         return false;
@@ -569,6 +580,7 @@ bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv:
     return false;
 }
 
+// 使用单应矩阵H恢复运动
 bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv::Mat &K,
                       cv::Mat &R21, cv::Mat &t21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated, float minParallax, int minTriangulated)
 {
@@ -731,6 +743,7 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
     return false;
 }
 
+// SVD求解超定方程
 void Initializer::Triangulate(const cv::KeyPoint &kp1, const cv::KeyPoint &kp2, const cv::Mat &P1, const cv::Mat &P2, cv::Mat &x3D)
 {
     cv::Mat A(4,4,CV_32F);
@@ -746,8 +759,10 @@ void Initializer::Triangulate(const cv::KeyPoint &kp1, const cv::KeyPoint &kp2, 
     x3D = x3D.rowRange(0,3)/x3D.at<float>(3);
 }
 
+// 使用均值和一阶中心矩归一化,归一化可以增强计算稳定性
 void Initializer::Normalize(const vector<cv::KeyPoint> &vKeys, vector<cv::Point2f> &vNormalizedPoints, cv::Mat &T)
 {
+    // 计算均值
     float meanX = 0;
     float meanY = 0;
     const int N = vKeys.size();
@@ -763,6 +778,7 @@ void Initializer::Normalize(const vector<cv::KeyPoint> &vKeys, vector<cv::Point2
     meanX = meanX/N;
     meanY = meanY/N;
 
+    // 计算一阶中心矩
     float meanDevX = 0;
     float meanDevY = 0;
 
@@ -781,12 +797,14 @@ void Initializer::Normalize(const vector<cv::KeyPoint> &vKeys, vector<cv::Point2
     float sX = 1.0/meanDevX;
     float sY = 1.0/meanDevY;
 
+    // 进行归一化
     for(int i=0; i<N; i++)
     {
         vNormalizedPoints[i].x = vNormalizedPoints[i].x * sX;
         vNormalizedPoints[i].y = vNormalizedPoints[i].y * sY;
     }
 
+    // 记录归一化参数,以便后续恢复尺度
     T = cv::Mat::eye(3,3,CV_32F);
     T.at<float>(0,0) = sX;
     T.at<float>(1,1) = sY;
@@ -794,7 +812,9 @@ void Initializer::Normalize(const vector<cv::KeyPoint> &vKeys, vector<cv::Point2
     T.at<float>(1,2) = -meanY*sY;
 }
 
-
+// 检验分解结果R,t
+// 通过成功三角化的特征点个数判断分解结果的好坏: 
+// 若某特征点的重投影误差小于4且视差角大于0.36°,则认为该特征点三角化成功
 int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::KeyPoint> &vKeys1, const vector<cv::KeyPoint> &vKeys2,
                        const vector<Match> &vMatches12, vector<bool> &vbMatchesInliers,
                        const cv::Mat &K, vector<cv::Point3f> &vP3D, float th2, vector<bool> &vbGood, float &parallax)
@@ -811,31 +831,30 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::Ke
     vector<float> vCosParallax;
     vCosParallax.reserve(vKeys1.size());
 
-    // Camera 1 Projection Matrix K[I|0]
-    cv::Mat P1(3,4,CV_32F,cv::Scalar(0));
+    // Camera 1 Projection Matrix K[I|0] 以相机1光心为世界坐标系,计算相机的投影矩阵和光心位置
+    cv::Mat P1(3,4,CV_32F,cv::Scalar(0)); // P1表示相机1投影矩阵, K[I|0]
     K.copyTo(P1.rowRange(0,3).colRange(0,3));
 
-    cv::Mat O1 = cv::Mat::zeros(3,1,CV_32F);
+    cv::Mat O1 = cv::Mat::zeros(3,1,CV_32F); // O1表示世界坐标下相机1光心位置, O1=0
 
     // Camera 2 Projection Matrix K[R|t]
-    cv::Mat P2(3,4,CV_32F);
+    cv::Mat P2(3,4,CV_32F); // P2表示相机2投影矩阵, K[R|t]
     R.copyTo(P2.rowRange(0,3).colRange(0,3));
     t.copyTo(P2.rowRange(0,3).col(3));
     P2 = K*P2;
 
-    cv::Mat O2 = -R.t()*t;
+    cv::Mat O2 = -R.t()*t; // O2表示世界坐标下相机2光心位置, O2=-R'*t
 
     int nGood=0;
-
+    // 遍历所有特征点对
     for(size_t i=0, iend=vMatches12.size();i<iend;i++)
     {
         if(!vbMatchesInliers[i])
             continue;
-
+        // 三角化地图点
         const cv::KeyPoint &kp1 = vKeys1[vMatches12[i].first];
         const cv::KeyPoint &kp2 = vKeys2[vMatches12[i].second];
         cv::Mat p3dC1;
-
         Triangulate(kp1,kp2,P1,P2,p3dC1);
 
         if(!isfinite(p3dC1.at<float>(0)) || !isfinite(p3dC1.at<float>(1)) || !isfinite(p3dC1.at<float>(2)))
@@ -844,7 +863,7 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::Ke
             continue;
         }
 
-        // Check parallax
+        // Check parallax 检查三角化坐标点合法性
         cv::Mat normal1 = p3dC1 - O1;
         float dist1 = cv::norm(normal1);
 
@@ -854,6 +873,7 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::Ke
         float cosParallax = normal1.dot(normal2)/(dist1*dist2);
 
         // Check depth in front of first camera (only if enough parallax, as "infinite" points can easily go to negative depth)
+        // 正确三角化的地图点深度值应为正数且视差角足够大
         if(p3dC1.at<float>(2)<=0 && cosParallax<0.99998)
             continue;
 
@@ -871,6 +891,7 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::Ke
 
         float squareError1 = (im1x-kp1.pt.x)*(im1x-kp1.pt.x)+(im1y-kp1.pt.y)*(im1y-kp1.pt.y);
 
+        // 正确三角化的地图点重投影误差应足够小
         if(squareError1>th2)
             continue;
 
@@ -885,6 +906,7 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::Ke
         if(squareError2>th2)
             continue;
 
+        // 记录通过检验的地图点
         vCosParallax.push_back(cosParallax);
         vP3D[vMatches12[i].first] = cv::Point3f(p3dC1.at<float>(0),p3dC1.at<float>(1),p3dC1.at<float>(2));
         nGood++;
@@ -893,6 +915,7 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::Ke
             vbGood[vMatches12[i].first]=true;
     }
 
+    // 记录三角化过程中的较小(第50个视差角)
     if(nGood>0)
     {
         sort(vCosParallax.begin(),vCosParallax.end());

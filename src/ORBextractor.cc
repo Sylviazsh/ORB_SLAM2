@@ -161,7 +161,7 @@ static void computeOrbDescriptor(const KeyPoint& kpt,
 }
 
 //随机抽取两对比像素的抽取方式，通过神经网络的训练，发现的一种效果很好的点对pattern，每行4个值，代表两个点的横纵坐标
-static int bit_pattern_31_[256*4] =
+int bit_pattern_31_[256*4] =
 {
     8,-3, 9,5/*mean (0), correlation (0)*/,
     4,2, 7,-12/*mean (1.12461e-05), correlation (0.0437584)*/,
@@ -1072,7 +1072,7 @@ void ORBextractor::ComputeKeyPointsOld(std::vector<std::vector<KeyPoint> > &allK
         computeOrientation(mvImagePyramid[level], allKeypoints[level], umax);
 }
 
-static void computeDescriptors(const Mat& image, vector<KeyPoint>& keypoints, Mat& descriptors,
+void computeDescriptors(const Mat& image, vector<KeyPoint>& keypoints, Mat& descriptors,
                                const vector<Point>& pattern)
 {
     descriptors = Mat::zeros((int)keypoints.size(), 32, CV_8UC1);

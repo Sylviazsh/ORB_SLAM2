@@ -24,6 +24,8 @@
 
 #include<opencv2/core/core.hpp>
 #include<opencv2/features2d/features2d.hpp>
+#include<iostream>
+#include <bitset>
 
 #include "Thirdparty/DBoW2/DBoW2/FeatureVector.h"
 
@@ -439,6 +441,7 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
         if(level1>0)
             continue;
 
+        // 在半径窗口内搜索当前帧F2中所有的候选匹配特征点
         vector<size_t> vIndices2 = F2.GetFeaturesInArea(vbPrevMatched[i1].x,vbPrevMatched[i1].y, windowSize,level1,level1);
 
         if(vIndices2.empty())
@@ -446,16 +449,18 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
 
         cv::Mat d1 = F1.mDescriptors.row(i1);
 
-        int bestDist = INT_MAX;
-        int bestDist2 = INT_MAX;
-        int bestIdx2 = -1;
+        int bestDist = INT_MAX; //最佳描述子匹配距离，越小越好
+        int bestDist2 = INT_MAX; //次佳描述子匹配距离
+        int bestIdx2 = -1; //最佳候选特征点在F2中的index
 
+        // 遍历搜索搜索窗口中的所有潜在的匹配候选点，找到最优的和次优的
         for(vector<size_t>::iterator vit=vIndices2.begin(); vit!=vIndices2.end(); vit++)
         {
             size_t i2 = *vit;
 
             cv::Mat d2 = F2.mDescriptors.row(i2);
 
+            // 计算两个特征点描述子距离
             int dist = DescriptorDistance(d1,d2);
 
             if(vMatchedDistance[i2]<=dist)
@@ -473,26 +478,35 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
             }
         }
 
+        // 对最优次优结果进行检查，满足阈值、最优/次优比例，删除重复匹配
         if(bestDist<=TH_LOW)
         {
+            // 最佳距离比次佳距离要小于设定的比例，这样特征点辨识度更高
             if(bestDist<(float)bestDist2*mfNNratio)
             {
+                // 如果找到的候选特征点对应F1中特征点已经匹配过了，说明发生了重复匹配，将原来的匹配也删掉
                 if(vnMatches21[bestIdx2]>=0)
                 {
                     vnMatches12[vnMatches21[bestIdx2]]=-1;
                     nmatches--;
                 }
+                // 匹配关系，双向建立
+                // vnMatches12保存参考帧F1和F2匹配关系，index保存是F1对应特征点索引，值保存的是匹配好的F2特征点索引
                 vnMatches12[i1]=bestIdx2;
                 vnMatches21[bestIdx2]=i1;
                 vMatchedDistance[bestIdx2]=bestDist;
                 nmatches++;
 
+                // 计算匹配点旋转角度差所在的直方图
                 if(mbCheckOrientation)
                 {
+                    // 计算匹配特征点的角度差，这里单位是角度°，不是弧度
                     float rot = F1.mvKeysUn[i1].angle-F2.mvKeysUn[bestIdx2].angle;
                     if(rot<0.0)
                         rot+=360.0f;
+                    // 表示当前rot被分配在第几个直方图bin
                     int bin = round(rot*factor);
+                    // 如果bin 满了又是一个轮回
                     if(bin==HISTO_LENGTH)
                         bin=0;
                     assert(bin>=0 && bin<HISTO_LENGTH);
@@ -503,18 +517,21 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
 
     }
 
+    // 筛除旋转直方图中“非主流”部分
     if(mbCheckOrientation)
     {
         int ind1=-1;
         int ind2=-1;
         int ind3=-1;
-
+        
+        // 筛选出在旋转角度差落在在直方图区间内数量最多的前三个bin的索引
         ComputeThreeMaxima(rotHist,HISTO_LENGTH,ind1,ind2,ind3);
 
         for(int i=0; i<HISTO_LENGTH; i++)
         {
             if(i==ind1 || i==ind2 || i==ind3)
                 continue;
+            // 剔除掉不在前三的匹配对，因为他们不符合“主流旋转方向”
             for(size_t j=0, jend=rotHist[i].size(); j<jend; j++)
             {
                 int idx1 = rotHist[i][j];
@@ -528,7 +545,7 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
 
     }
 
-    //Update prev matched
+    //Update prev matched 将最后通过筛选的匹配好的特征点保存到vbPrevMatched
     for(size_t i1=0, iend1=vnMatches12.size(); i1<iend1; i1++)
         if(vnMatches12[i1]>=0)
             vbPrevMatched[i1]=F2.mvKeysUn[vnMatches12[i1]].pt;
@@ -1662,6 +1679,25 @@ void ORBmatcher::ComputeThreeMaxima(vector<int>* histo, const int L, int &ind1, 
     }
 }
 
+void PrintBinary(string s,int n)
+{
+    cout << s << " = " << endl;
+    // vector<int>m;
+    int flag = 0;
+    for (int i = 31; i >= 0; i--)
+    {
+        //m.push_back( ( (n>>i) & 1) );//与1做位操作，前面位数均为0
+        cout<<( (n>>i) & 1);//输出二进制
+        if(flag==3){
+            cout << " ";
+            flag = 0;
+            continue;
+        }
+        flag++;
+    }
+    cout<<endl<<endl;
+    //return m;
+}
 
 // Bit set count operation from
 // http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
@@ -1676,17 +1712,29 @@ int ORBmatcher::DescriptorDistance(const cv::Mat &a, const cv::Mat &b)
 
     for(int i=0; i<8; i++, pa++, pb++)
     {
-        unsigned  int v = *pa ^ *pb;
-        // 将32位分为16组,看每一组中有几个1
-        // 0x55555555->0101 0101 0101 0101，假设某一组为11,则对应输出为10(两个1)
+        unsigned  int v = *pa ^ *pb; // ^ 是按位异或
+
+        // PrintBinary("*pa", *pa);
+        // PrintBinary("*pb", *pb);
+        // PrintBinary("v = *pa ^ *pb", v);
+        // PrintBinary("v >> 1", v >> 1);
+        // PrintBinary("& 0x55555555", (v >> 1) & 0x55555555);
+
+        // 将32位分为16组,每组2个数，看每一组中有几个1
+        // 0x55555555 => 0101 0101 0101 0101，假设某一组为11,则对应输出为10(两个1)
         v = v - ((v >> 1) & 0x55555555);
+        // PrintBinary("v - ((v >> 1) & 0x55555555)", v);
+
         // 将32位分为8组,看原来那个数每8个单位里有几个1
-        // 0x33333333->0011 0011 0011 0011
+        // 0x33333333 => 0011 0011 0011 0011
         // 这里的v将上一步的2个bit为一组的数转化为这里的4个bit为一组
         v = (v & 0x33333333) + ((v >> 2) & 0x33333333);
+        // PrintBinary("(v & 0x33333333) + ((v >> 2) & 0x33333333)", v);
+
         // 分为4组,每组16bit
         // *0x1010101并且>>24是只保留原来的后8位,因为最大值是256,也就是8位
         dist += (((v + (v >> 4)) & 0xF0F0F0F) * 0x1010101) >> 24;
+        // cout << "distance = " << dist << endl;
     }
 
     return dist;

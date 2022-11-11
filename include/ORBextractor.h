@@ -30,7 +30,7 @@ namespace ORB_SLAM2
 {
 
 float IC_Angle(const cv::Mat& image, cv::Point2f pt,  const std::vector<int> & u_max);
-int bit_pattern_31_[256*4];
+extern int bit_pattern_31_[256*4];
 void computeDescriptors(const cv::Mat &image, std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors, const std::vector<cv::Point> &pattern);
 
 class ExtractorNode

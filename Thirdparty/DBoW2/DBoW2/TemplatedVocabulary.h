@@ -1123,6 +1123,9 @@ void TemplatedVocabulary<TDescriptor,F>::transform(
 
 // --------------------------------------------------------------------------
 
+//?
+// 从根节点开始逐层地将图像特征描述子和节点自身的特征描述子使用FORB::distance()计算距离
+// 取距离最小的节点作为迭代计算新的起点，直至找到一个叶子节点，也就是word
 template<class TDescriptor, class F> 
 void TemplatedVocabulary<TDescriptor,F>::transform(
   const std::vector<TDescriptor>& features,

@@ -571,7 +571,7 @@ void Tracking::MonocularInitialization()
         // Set Reference Frame
         if(mCurrentFrame.mvKeys.size()>100) // 单目初始帧的特征点数必须大于100
         {
-            // 初始化需要两帧，分别是mInitialFrame，mCurrentFrame
+            // 当第一次进入该方法的时候，没有先前的帧数据，将当前帧保存为初始帧和最后一帧
             mInitialFrame = Frame(mCurrentFrame);
             mLastFrame = Frame(mCurrentFrame);
 
@@ -585,7 +585,7 @@ void Tracking::MonocularInitialization()
 
             mpInitializer =  new Initializer(mCurrentFrame,1.0,200);
 
-            // 初始化为-1 表示没有任何匹配。这里面存储的是匹配的点的id
+            // 初始化为-1 表示没有任何匹配。存储匹配的点的id
             fill(mvIniMatches.begin(),mvIniMatches.end(),-1);
 
             return;
@@ -594,7 +594,7 @@ void Tracking::MonocularInitialization()
     else
     {
         // Try to initialize
-        // 如果初始化器已被创建，如果当前帧特征点数小于100，则删除这个初始化器
+        // 利用ORB匹配器，对当前帧和初始帧进行匹配，对应关系小于100个时失败，需要重新构造初始器
         if((int)mCurrentFrame.mvKeys.size()<=100)
         {
             delete mpInitializer;
@@ -621,6 +621,7 @@ void Tracking::MonocularInitialization()
         cv::Mat tcw; // Current Camera Translation
         vector<bool> vbTriangulated; // Triangulated Correspondences (mvIniMatches)
 
+        // Initialize利用八点法的对极约束，启动两个线程分别计算单应矩阵和基础矩阵，并通过score判断用单应矩阵回复运动轨迹还是使用基础矩阵回复运动轨迹
         if(mpInitializer->Initialize(mCurrentFrame, mvIniMatches, Rcw, tcw, mvIniP3D, vbTriangulated))
         {
             for(size_t i=0, iend=mvIniMatches.size(); i<iend;i++)
@@ -644,38 +645,65 @@ void Tracking::MonocularInitialization()
     }
 }
 
+/**
+ * @brief 为关键帧初始化生成对应的MapPoints
+ * 主要流程如下:
+ * 1 将初始关键帧,当前关键帧的描述子转为BoW
+ * 2 将关键帧插入到地图
+ * 3 用初始化得到的3D点来生成地图点MapPoints
+ * 4 全局BA优化，同时优化所有位姿和三维点
+ * 5 取场景的中值深度，用于尺度归一化 
+ * 6 将两帧之间的变换归一化到平均深度1的尺度下
+ * 7 把3D点的尺度也归一化到1
+ * 8 将关键帧插入局部地图，更新归一化后的位姿、局部地图点
+*/
 void Tracking::CreateInitialMapMonocular()
 {
-    // Create KeyFrames
-    KeyFrame* pKFini = new KeyFrame(mInitialFrame,mpMap,mpKeyFrameDB);
-    KeyFrame* pKFcur = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB);
+    // Create KeyFrames 创建初始帧和当前帧
+    KeyFrame* pKFini = new KeyFrame(mInitialFrame,mpMap,mpKeyFrameDB); // 第一帧，初始关键帧
+    KeyFrame* pKFcur = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB); // 第二帧，当前关键帧
 
-
+    // 将初始关键帧,当前关键帧的描述子转为BoW
+    // 其中用到的ORB Vocabulary[参考:https://www.zhihu.com/question/49153462]
+    // ORBVoc.txt每行具体含义[参考:https://zhuanlan.zhihu.com/p/83071320]
     pKFini->ComputeBoW();
     pKFcur->ComputeBoW();
 
-    // Insert KFs in the map
+    // Insert KFs in the map 将初始关键帧和当前关键帧插入地图中，地图中就会显示
     mpMap->AddKeyFrame(pKFini);
     mpMap->AddKeyFrame(pKFcur);
 
     // Create MapPoints and asscoiate to keyframes
-    for(size_t i=0; i<mvIniMatches.size();i++)
+    // 遍历所有匹配的关键点，创建对应的mapPoint
+    for(size_t i=0; i<mvIniMatches.size();i++) // mvIniMatches[i]表示初始化两帧特征点匹配关系
     {
-        if(mvIniMatches[i]<0)
+        if(mvIniMatches[i]<0) //没有匹配，默认值为-1
             continue;
 
         //Create MapPoint.
-        cv::Mat worldPos(mvIniP3D[i]);
+        cv::Mat worldPos(mvIniP3D[i]); // 用三角化点初始化为空间点的世界坐标
 
-        MapPoint* pMP = new MapPoint(worldPos,pKFcur,mpMap);
+        MapPoint* pMP = new MapPoint(worldPos,pKFcur,mpMap); // 用3D点构造MapPoint
 
+        /**
+         * 为该MapPoint添加属性：
+         * a.观测到该MapPoint的关键帧
+         * b.该MapPoint的描述子
+         * c.该MapPoint的平均观测方向和深度范围
+        */
+
+        // 表示该KeyFrame的2D特征点和对应的3D地图点
         pKFini->AddMapPoint(pMP,i);
         pKFcur->AddMapPoint(pMP,mvIniMatches[i]);
 
+        // a.表示该MapPoint可以被哪个KeyFrame的哪个特征点观测到
         pMP->AddObservation(pKFini,i);
         pMP->AddObservation(pKFcur,mvIniMatches[i]);
 
+        // b.从众多观测到该MapPoint的特征点中挑选最有代表性的描述子
         pMP->ComputeDistinctiveDescriptors();
+
+        // c.更新该MapPoint平均观测方向以及观测距离的范围
         pMP->UpdateNormalAndDepth();
 
         //Fill Current Frame structure
@@ -686,16 +714,19 @@ void Tracking::CreateInitialMapMonocular()
         mpMap->AddMapPoint(pMP);
     }
 
-    // Update Connections
+    // Update Connections 更新关键帧间的连接关系
+    // 在3D点和关键帧之间建立边，每个边有一个权重，边的权重是该关键帧与当前帧公共3D点的个数
     pKFini->UpdateConnections();
     pKFcur->UpdateConnections();
 
-    // Bundle Adjustment
+    // Bundle Adjustment 
     cout << "New Map created with " << mpMap->MapPointsInMap() << " points" << endl;
 
+    // 全局BA优化，同时优化所有位姿和三维点
     Optimizer::GlobalBundleAdjustemnt(mpMap,20);
 
     // Set median depth to 1
+    // 将MapPoints的中值深度归一化到1，并归一化两帧之间变换,评估关键帧场景深度，q=2表示中值
     float medianDepth = pKFini->ComputeSceneMedianDepth(2);
     float invMedianDepth = 1.0f/medianDepth;
 
@@ -732,10 +763,10 @@ void Tracking::CreateInitialMapMonocular()
     mvpLocalKeyFrames.push_back(pKFcur);
     mvpLocalKeyFrames.push_back(pKFini);
     mvpLocalMapPoints=mpMap->GetAllMapPoints();
-    mpReferenceKF = pKFcur;
+    mpReferenceKF = pKFcur; // 将当前关键帧设置为参考关键帧
     mCurrentFrame.mpReferenceKF = pKFcur;
 
-    mLastFrame = Frame(mCurrentFrame);
+    mLastFrame = Frame(mCurrentFrame); // 更新mLastFrame
 
     mpMap->SetReferenceMapPoints(mvpLocalMapPoints);
 
@@ -743,7 +774,7 @@ void Tracking::CreateInitialMapMonocular()
 
     mpMap->mvpKeyFrameOrigins.push_back(pKFini);
 
-    mState=OK;
+    mState=OK; //初始化完成，修改标记值
 }
 
 void Tracking::CheckReplacedInLastFrame()

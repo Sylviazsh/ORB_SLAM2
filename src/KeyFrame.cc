@@ -63,13 +63,18 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB):
     SetPose(F.mTcw);    
 }
 
+// 计算当前帧特征点对应的词袋Bow，主要是mBowVec 和 mFeatVec
 void KeyFrame::ComputeBoW()
 {
-    if(mBowVec.empty() || mFeatVec.empty())
+    if(mBowVec.empty() || mFeatVec.empty()) // 判断是否以前已经计算过了，计算过了就跳过
     {
+        // 将描述子mDescriptors转换为DBOW要求的输入格式
         vector<cv::Mat> vCurrentDesc = Converter::toDescriptorVector(mDescriptors);
         // Feature vector associate features with nodes in the 4th level (from leaves up)
         // We assume the vocabulary tree has 6 levels, change the 4 otherwise
+        // 将特征点的描述子转换成词袋向量mBowVec以及特征向量mFeatVec
+        // mBowVec: std::map<WordId, WordValue>
+        // mFeatVec: std::map<NodeId, std::vector<unsigned int>>
         mpORBvocabulary->transform(vCurrentDesc,mBowVec,mFeatVec,4);
     }
 }
@@ -148,23 +153,28 @@ void KeyFrame::AddConnection(KeyFrame *pKF, const int &weight)
     UpdateBestCovisibles();
 }
 
+// 按照权重对连接的关键帧进行排序
+// 更新后的变量存储在mvpOrderedConnectedKeyFrames和mvOrderedWeights中
 void KeyFrame::UpdateBestCovisibles()
 {
     unique_lock<mutex> lock(mMutexConnections);
     vector<pair<int,KeyFrame*> > vPairs;
     vPairs.reserve(mConnectedKeyFrameWeights.size());
+    // 取出所有连接的关键帧，将元素取出放入一个pair组成的vector中，排序后放入vPairs
     for(map<KeyFrame*,int>::iterator mit=mConnectedKeyFrameWeights.begin(), mend=mConnectedKeyFrameWeights.end(); mit!=mend; mit++)
        vPairs.push_back(make_pair(mit->second,mit->first));
 
+    // 按照权重进行排序
     sort(vPairs.begin(),vPairs.end());
-    list<KeyFrame*> lKFs;
-    list<int> lWs;
+    list<KeyFrame*> lKFs; // keyframe
+    list<int> lWs; // weight
     for(size_t i=0, iend=vPairs.size(); i<iend;i++)
     {
         lKFs.push_front(vPairs[i].second); //链表中权重由大到小排列要用push_front
         lWs.push_front(vPairs[i].first);
     }
 
+    //更新排序好的连接关键帧及其对应的权重
     mvpOrderedConnectedKeyFrames = vector<KeyFrame*>(lKFs.begin(),lKFs.end());
     mvOrderedWeights = vector<int>(lWs.begin(), lWs.end());    
 }
@@ -260,6 +270,7 @@ set<MapPoint*> KeyFrame::GetMapPoints()
     return s;
 }
 
+// 获取被观测相机数大于等于minObs的MapPoint
 int KeyFrame::TrackedMapPoints(const int &minObs)
 {
     unique_lock<mutex> lock(mMutexFeatures);
@@ -299,13 +310,12 @@ MapPoint* KeyFrame::GetMapPoint(const size_t &idx)
     return mvpMapPoints[idx];
 }
 
+// 更新图的连接
 void KeyFrame::UpdateConnections()
 {
     // 1.获得该关键帧的所有地图点，统计观测到这些地图点的其它关键帧
     map<KeyFrame*,int> KFcounter;
-
     vector<MapPoint*> vpMP;
-
     {
         unique_lock<mutex> lockMPs(mMutexFeatures);
         vpMP = mvpMapPoints;
@@ -323,6 +333,7 @@ void KeyFrame::UpdateConnections()
         if(pMP->isBad())
             continue;
 
+        // 对于每一个MapPoint点，observations记录了可以观测到该MapPoint的所有关键帧
         map<KeyFrame*,size_t> observations = pMP->GetObservations();
 
         for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
@@ -347,12 +358,13 @@ void KeyFrame::UpdateConnections()
 
     vector<pair<int,KeyFrame*> > vPairs;
     vPairs.reserve(KFcounter.size());
+    // 遍历和当前关键帧具有共视关系的关键帧
     for(map<KeyFrame*,int>::iterator mit=KFcounter.begin(), mend=KFcounter.end(); mit!=mend; mit++)
     {
         if(mit->second>nmax)
         {
             nmax=mit->second;
-            pKFmax=mit->first;
+            pKFmax=mit->first; // 找到对应权重最大的关键帧（共视程度最高的关键帧）
         }
         if(mit->second>=th) //对应权重大于阈值，对这些关键帧建立连接
         {
@@ -647,6 +659,9 @@ cv::Mat KeyFrame::UnprojectStereo(int i)
         return cv::Mat();
 }
 
+// 计算场景中的中位深度
+// 1. 获取每个地图点的世界位姿
+// 2. 找出当前帧Z方向上的旋转和平移，求每个地图点在当前相机坐标系中的z轴位置，求平均值
 float KeyFrame::ComputeSceneMedianDepth(const int q)
 {
     vector<MapPoint*> vpMapPoints;
@@ -669,7 +684,7 @@ float KeyFrame::ComputeSceneMedianDepth(const int q)
         {
             MapPoint* pMP = mvpMapPoints[i];
             cv::Mat x3Dw = pMP->GetWorldPos();
-            float z = Rcw2.dot(x3Dw)+zcw;
+            float z = Rcw2.dot(x3Dw)+zcw; // (R*x3Dw+t)的第三行，即z
             vDepths.push_back(z);
         }
     }
