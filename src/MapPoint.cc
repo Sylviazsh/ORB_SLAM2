@@ -436,12 +436,23 @@ float MapPoint::GetMaxDistanceInvariance()
     return 1.2f*mfMaxDistance;
 }
 
+//              ____
+// Nearer      /____\     level:n-1 --> dmin
+//            /______\                       d/dmin = 1.2^(n-1-m)
+//           /________\   level:m   --> d
+//          /__________\                     dmax/d = 1.2^m
+// Farther /____________\ level:0   --> dmax
+//
+//           log(dmax/d)
+// m = ceil(------------)
+//            log(1.2)
 int MapPoint::PredictScale(const float &currentDist, KeyFrame* pKF)
 {
     float ratio;
     {
         unique_lock<mutex> lock(mMutexPos);
-        ratio = mfMaxDistance/currentDist;
+        // 参考帧考虑上尺度后的距离 mfMaxDistance = ref_dist*levelScaleFactor
+        ratio = mfMaxDistance/currentDist; // = ref_dist/cur_dist
     }
 
     int nScale = ceil(log(ratio)/pKF->mfLogScaleFactor);
