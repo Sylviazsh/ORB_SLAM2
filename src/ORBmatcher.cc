@@ -1392,7 +1392,7 @@ int ORBmatcher::SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint*> &
  * @param bMono 是否单目
  * @return nmatches 成功匹配的数量
 */
-int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &, const float th, const bool bMono)
+int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame & LastFrame, const float th, const bool bMono)
 {
     int nmatches = 0;
 
