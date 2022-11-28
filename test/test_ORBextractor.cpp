@@ -87,7 +87,7 @@ int main()
     std::copy(pattern0, pattern0 + 512, std::back_inserter(pattern));
     ORB_SLAM2::computeDescriptors(img, allKeypoints[0], descriptor1, pattern);
     ORB_SLAM2::computeDescriptors(img, allKeypoints[1], descriptor2, pattern);
-    cout << "descriptor1" << descriptor1 << endl;
+    // cout << "descriptor1" << descriptor1 << endl;
 
     // 计算描述子距离
     //! 先取消注释ORBmatcher::DescriptorDistance中的所有PrintBinary函数，才会打印计算过程
@@ -105,8 +105,8 @@ int main()
     vector<cv::Mat> vCurrentDesc = ORB_SLAM2::Converter::toDescriptorVector(descriptor1);
     mpVocabulary->transform(vCurrentDesc,bow,featrue,4);
     cout << "----------ComputeBoW----------" << endl;
-    cout << "BoW=" << bow << endl << endl;
-    cout << "Featrue=" << featrue << endl;
+    // cout << "BoW=" << bow << endl << endl;
+    // cout << "Featrue=" << featrue << endl;
 
     cv::waitKey(0);
 }
