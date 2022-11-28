@@ -1,8 +1,15 @@
 opencv 3.2.0
+### 编译
+```
+./build.sh
+```
 ### 运行
 ```
 ./Examples/Monocular/mono_tum Vocabulary/ORBvoc.txt Examples/Monocular/TUM1.yaml /home/zhoush/Documents/dataset/rgbd_dataset_freiburg1_xyz
 ```
+### 代码注释参考：
+1. https://github.com/electech6/ORB_SLAM2_detailed_comments
+
 # ORB-SLAM2
 **Authors:** [Raul Mur-Artal](http://webdiis.unizar.es/~raulmur/), [Juan D. Tardos](http://webdiis.unizar.es/~jdtardos/), [J. M. M. Montiel](http://webdiis.unizar.es/~josemari/) and [Dorian Galvez-Lopez](http://doriangalvez.com/) ([DBoW2](https://github.com/dorian3d/DBoW2))
 
